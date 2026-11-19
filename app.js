@@ -167,6 +167,14 @@
     });
   }
 
+  function paintPlanNote() {
+    const el = $('#planNote');
+    if (!el) return;
+    if (!state.plan) { el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false;
+    el.innerHTML = '희망 요금제 : <strong>' + escapeHtml(state.plan) + '</strong> <button type="button" class="plan-clear">변경</button>';
+  }
+
   function paintWebhookState() {
     const el = $('#webhookState');
     const input = $('#webhookInput');
@@ -718,11 +726,14 @@
     $('#brandBtn').addEventListener('click', function () { showView('land'); });
     $$('a[data-plan]').forEach(function (a) {
       a.addEventListener('click', function () {
-        const plan = a.getAttribute('data-plan');
-        state.plan = plan;
+        state.plan = a.getAttribute('data-plan');
+        paintPlanNote();
         const sel = $('#coIndustry');
         if (sel) sel.focus({ preventScroll: true });
       });
+    });
+    $('#planNote').addEventListener('click', function (ev) {
+      if (ev.target.closest('.plan-clear')) { state.plan = ''; paintPlanNote(); }
     });
 
     // 신청 폼
