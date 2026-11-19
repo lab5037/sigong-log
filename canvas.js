@@ -57,8 +57,9 @@
     const y0 = SIZE - h;
     const g = ctx.createLinearGradient(0, y0, 0, SIZE);
     g.addColorStop(0, 'rgba(9,16,26,0)');
-    g.addColorStop(0.45, 'rgba(9,16,26,0.62)');
-    g.addColorStop(1, 'rgba(9,16,26,0.92)');
+    g.addColorStop(0.4, 'rgba(9,16,26,0.58)');
+    g.addColorStop(0.72, 'rgba(9,16,26,0.86)');
+    g.addColorStop(1, 'rgba(9,16,26,0.96)');
     ctx.fillStyle = g;
     ctx.fillRect(0, y0, SIZE, h);
 

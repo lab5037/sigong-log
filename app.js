@@ -225,6 +225,11 @@
     state.tone = biz.style || 'haeyo';
     paintTone();
     updateBizSummary();
+    // 이미 저장된 업체 정보가 있으면 접어 두고 바로 현장 입력으로 넘어간다.
+    if (biz.name) {
+      $('#bizBody').hidden = true;
+      $('#bizToggle').setAttribute('aria-expanded', 'false');
+    }
   }
 
   function currentBiz() {
