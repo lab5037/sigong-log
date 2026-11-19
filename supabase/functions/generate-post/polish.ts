@@ -108,6 +108,67 @@ function stripFence(text: string): string {
     .trim();
 }
 
+/** 사진 설명 줄([사진 : ...])의 기준 키 — 공정 이름 부분. */
+const MARKER_RE = /^\[사진\s*:\s*([^\]]*)\]\s*$/;
+
+function markerKey(line: string): string {
+  return line.replace(/^\[사진\s*:\s*/, '').replace(/\]$/, '').split('·')[0].trim();
+}
+
+/** 모델이 사진 위치 줄을 줄이거나 바꿔 썼으면 초안의 줄 그대로 되돌린다. */
+export function restoreMarkers(polished: string, draft: string): string {
+  const draftMarkers = String(draft)
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => MARKER_RE.test(l));
+  if (!draftMarkers.length) return polished;
+  const byKey = new Map<string, string>();
+  for (const m of draftMarkers) {
+    const k = markerKey(m);
+    if (!byKey.has(k)) byKey.set(k, m);
+  }
+  return String(polished)
+    .split('\n')
+    .map((line) => {
+      const t = line.trim();
+      if (!MARKER_RE.test(t)) return line;
+      if (draftMarkers.indexOf(t) >= 0) return t;
+      const cand = byKey.get(markerKey(t));
+      return cand || line;
+    })
+    .join('\n');
+}
+
+/** 같은 사진 위치 줄을 모델이 여러 번 반복하면 첫 줄만 남긴다(사진 한 장에 설명 한 줄). */
+export function collapseMarkers(text: string): string {
+  const lines = String(text || '').split('\n');
+  const out: string[] = [];
+  let lastMarker = '';
+  let arrowKept = false;
+  for (const line of lines) {
+    const t = line.trim();
+    if (MARKER_RE.test(t)) {
+      if (t === lastMarker) {
+        // 반복된 위치 줄은 버린다. 이미 설명 줄을 남겼으면 그 아래 설명도 버린다.
+        continue;
+      }
+      lastMarker = t;
+      arrowKept = false;
+      out.push(line);
+      continue;
+    }
+    if (/^→/.test(t)) {
+      if (arrowKept) continue;
+      arrowKept = true;
+      out.push(line);
+      continue;
+    }
+    if (t) arrowKept = false;
+    out.push(line);
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 /** 사진이 없을 때는 모델이 지어낸 사진 설명(→ 줄)을 남기지 않는다. */
 export function stripPhotoArrows(text: string): string {
   return String(text || '')
@@ -127,9 +188,13 @@ export function acceptPolished(channel: string, polished: string, draft: string)
   if (ch.id === 'blog') {
     if (text.length < 300) return { ok: false, reason: 'too_short' };
     if (text.indexOf('■') < 0) return { ok: false, reason: 'format' };
-    const need = (String(draft).match(/\[사진\s*:/g) || []).length;
-    const got = (text.match(/\[사진\s*:/g) || []).length;
-    if (need > 0 && got < need) return { ok: false, reason: 'photo_markers' };
+    const draftMarkers = String(draft)
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => MARKER_RE.test(l));
+    if (draftMarkers.some((m) => text.indexOf(m) < 0)) return { ok: false, reason: 'photo_markers' };
+    const gotMarkers = text.split('\n').map((l) => l.trim()).filter((l) => MARKER_RE.test(l));
+    if (gotMarkers.length !== draftMarkers.length) return { ok: false, reason: 'photo_markers' };
   } else {
     if (text.length < 80) return { ok: false, reason: 'too_short' };
     if (/\[사진\s*:/.test(text) || /^■/m.test(text)) return { ok: false, reason: 'format' };
@@ -189,7 +254,7 @@ export async function polishDraft(req: PolishRequest): Promise<PolishResult> {
   const deadline = Date.now() + budget;
   const left = () => deadline - Date.now();
   const finish = (raw: string) => {
-    const clean = sanitize(stripFence(raw));
+    const clean = collapseMarkers(restoreMarkers(sanitize(stripFence(raw)), req.draft));
     return req.photos.length ? clean : stripPhotoArrows(clean);
   };
   let last = 'failed';

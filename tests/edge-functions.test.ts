@@ -4,7 +4,7 @@
 
 import { assertEquals, assert } from 'jsr:@std/assert@1';
 import { cleanImage, parseGenerateInput } from '../supabase/functions/generate-post/input.ts';
-import { acceptPolished, buildPrompt, modelChain, stripPhotoArrows } from '../supabase/functions/generate-post/polish.ts';
+import { acceptPolished, buildPrompt, collapseMarkers, modelChain, restoreMarkers, stripPhotoArrows } from '../supabase/functions/generate-post/polish.ts';
 import { sanitize } from '../supabase/functions/generate-post/engine.ts';
 import { decideSpam, isPhoneLike, nowKst, parseLead, telegramText } from '../supabase/functions/submit-lead/lead.ts';
 
@@ -156,10 +156,10 @@ Deno.test('polish: 프롬프트에 사진·말투·금지 규칙이 들어간다
 
 Deno.test('polish: 형식이 어긋난 결과는 받지 않는다(폴백 신호)', () => {
   const blogDraft = '■ 현장 요약\n· 평수 : 34평\n\n[사진 : 창틀 · 시공 전]\n\n본문 내용입니다.';
-  assert(acceptPolished('blog', '■ 현장 요약\n[사진 : 창틀 · 시공 전]\n본문 내용입니다. '.repeat(12) + '34평', blogDraft).ok);
+  assert(acceptPolished('blog', '■ 현장 요약\n[사진 : 창틀 · 시공 전]\n' + '본문 내용입니다. '.repeat(30) + '\n34평', blogDraft).ok);
   assertEquals(acceptPolished('blog', '짧음', blogDraft).reason, 'too_short');
   assertEquals(acceptPolished('blog', '요약 없이 긴 글 '.repeat(40) + '34평', blogDraft).reason, 'format');
-  assertEquals(acceptPolished('blog', ('■ 현장 요약 ' + '본문 내용입니다. '.repeat(30) + '34평'), blogDraft).reason, 'photo_markers');
+  assertEquals(acceptPolished('blog', ('■ 현장 요약 [사진 : 창틀 · 시공 전] ' + '본문 내용입니다. '.repeat(30) + '34평'), blogDraft).reason, 'photo_markers');
   assertEquals(acceptPolished('insta', '가'.repeat(200) + '\n[사진 : 창틀 · 시공 전]', '가'.repeat(200)).reason, 'format');
   assertEquals(acceptPolished('insta', '가'.repeat(200), '가'.repeat(200)).ok, true, '짧은 채널은 사진·소제목만 없으면 받는다');
   assertEquals(acceptPolished('insta', '짧음', '짧음').reason, 'too_short');
@@ -186,4 +186,27 @@ Deno.test('polish: 사진이 없으면 지어낸 사진 설명(→)을 지운다
   assertEquals(out.includes('→'), false);
   assert(out.includes('[사진 : 창틀 · 시공 전]'));
   assert(out.includes('본문입니다.'));
+});
+
+Deno.test('polish: 사진 위치 줄이 줄어들면 초안 그대로 되돌린다', () => {
+  const filler = '욕실 타일과 줄눈을 하나씩 확인하고 약품을 발라 두었습니다. '.repeat(12);
+  const draft = '■ 현장 요약\n[사진 : 송파구 헬리오시티 현장 전경 · 시공 전]\n' + filler + '\n[사진 : 욕실 줄눈·수전 · 시공 전]\n본문2';
+  const polished = '■ 현장 요약\n[사진 : 송파구 헬리오시티 현장 전경 · 시공 전]\n' + filler + '\n[사진 : 욕실 줄눈·수전]\n→ 곰팡이가 있어요.\n본문2';
+  const out = restoreMarkers(polished, draft);
+  assert(out.includes('[사진 : 욕실 줄눈·수전 · 시공 전]'), out);
+  assert(!/\[사진 : 욕실 줄눈·수전\]$/m.test(out));
+  assert(out.includes('→ 곰팡이가 있어요.'));
+  // 복원 후 형식 검사를 통과해야 한다
+  assertEquals(acceptPolished('blog', out, draft).ok, true);
+  // 초안에 없는 사진 줄을 새로 넣으면 거부
+  assertEquals(acceptPolished('blog', out + '\n[사진 : 없는 부위 · 시공 후]', draft).reason, 'photo_markers');
+});
+
+Deno.test('polish: 반복된 사진 위치 줄은 하나만 남긴다', () => {
+  const src = '[사진 : 욕실 · 작업 중]\n→ 곰팡이.\n[사진 : 욕실 · 작업 중]\n→ 물때.\n[사진 : 바닥 · 시공 후]\n→ 마감.';
+  const out = collapseMarkers(src);
+  assertEquals((out.match(/\[사진 : 욕실 · 작업 중\]/g) || []).length, 1);
+  assertEquals((out.match(/^→ /gm) || []).length, 2);
+  assert(out.includes('→ 곰팡이.') && out.includes('→ 마감.'));
+  assertEquals(out.includes('→ 물때.'), false);
 });
