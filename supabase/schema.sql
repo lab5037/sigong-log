@@ -113,11 +113,17 @@ create trigger on_auth_user_created
   for each row execute function public.handle_new_user();
 
 -- ── 3. 서버 측 원자적 횟수 차감 및 권한 확인 RPC ───────────────────────
--- 브라우저는 이 함수만 호출합니다. 클라이언트가 보낸 요금제/횟수 값은 믿지 않습니다.
-create or replace function public.consume_generation(
+-- 실제 차감 로직은 _consume_quota(사용자 id를 인자로 받는 내부 함수) 하나에만 둡니다.
+--   · 브라우저(로그인 사용자)  → consume_generation()            : auth.uid() 사용
+--   · Edge Function(서버)      → consume_generation_for_user()    : 검증된 user.id 사용
+-- 두 입구가 같은 로직을 쓰므로 요금제 규칙이 갈라지지 않습니다.
+-- _consume_quota 와 consume_generation_for_user 는 anon/authenticated 에서 실행 권한을 회수해
+-- 브라우저가 남의 user.id 로 횟수를 건드릴 수 없습니다.
+create or replace function public._consume_quota(
+  p_uid uuid,
   p_industry text,
-  p_channel text default 'blog',
-  p_region text default ''
+  p_channel text,
+  p_region text
 )
 returns jsonb
 language plpgsql
@@ -125,20 +131,19 @@ security definer
 set search_path = public
 as $$
 declare
-  v_uid uuid := auth.uid();
   v_prof public.profiles%rowtype;
   v_month_start timestamptz := date_trunc('month', now());
 begin
-  if v_uid is null then
+  if p_uid is null then
     return jsonb_build_object('allowed', false, 'reason', 'not_authenticated');
   end if;
 
-  select * into v_prof from public.profiles where id = v_uid for update;
+  select * into v_prof from public.profiles where id = p_uid for update;
   if not found then
     insert into public.profiles (id, email, plan, monthly_limit, used_count)
-    values (v_uid, null, 'trial', 3, 0)
+    values (p_uid, null, 'trial', 3, 0)
     on conflict (id) do nothing;
-    select * into v_prof from public.profiles where id = v_uid for update;
+    select * into v_prof from public.profiles where id = p_uid for update;
   end if;
 
   -- 유료 플랜(light)은 월이 바뀌면 사용량 자동 초기화
@@ -147,7 +152,7 @@ begin
       set used_count = 0,
           period_start = v_month_start,
           updated_at = now()
-      where id = v_uid
+      where id = p_uid
       returning * into v_prof;
   end if;
 
@@ -177,11 +182,16 @@ begin
   update public.profiles
     set used_count = used_count + 1,
         updated_at = now()
-    where id = v_uid
+    where id = p_uid
     returning * into v_prof;
 
   insert into public.generation_logs (user_id, industry, channel, region_label)
-  values (v_uid, coalesce(p_industry, ''), coalesce(p_channel, 'blog'), coalesce(p_region, ''));
+  values (
+    p_uid,
+    left(coalesce(p_industry, ''), 80),
+    left(coalesce(p_channel, 'blog'), 24),
+    left(coalesce(p_region, ''), 120)
+  );
 
   return jsonb_build_object(
     'allowed', true,
@@ -192,9 +202,52 @@ begin
 end;
 $$;
 
+-- 브라우저(로그인 사용자)가 부르는 입구. 본인 확인은 auth.uid() 로만 한다.
+create or replace function public.consume_generation(
+  p_industry text,
+  p_channel text default 'blog',
+  p_region text default ''
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return public._consume_quota(auth.uid(), p_industry, p_channel, p_region);
+end;
+$$;
+
+-- 서버(Edge Function)가 부르는 입구. user.id 는 auth.getUser()로 검증한 값만 넘어온다.
+create or replace function public.consume_generation_for_user(
+  p_user_id uuid,
+  p_industry text,
+  p_channel text default 'blog',
+  p_region text default ''
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return public._consume_quota(p_user_id, p_industry, p_channel, p_region);
+end;
+$$;
+
 -- 익명 호출은 'not_authenticated'만 돌려주므로 프론트가 스키마 설치 여부를 확인하는 데 쓸 수 있다.
+revoke all on function public._consume_quota(uuid, text, text, text) from public;
+revoke all on function public._consume_quota(uuid, text, text, text) from anon;
+revoke all on function public._consume_quota(uuid, text, text, text) from authenticated;
+grant execute on function public._consume_quota(uuid, text, text, text) to service_role;
+
 revoke all on function public.consume_generation(text, text, text) from public;
 grant execute on function public.consume_generation(text, text, text) to anon, authenticated;
+
+revoke all on function public.consume_generation_for_user(uuid, text, text, text) from public;
+revoke all on function public.consume_generation_for_user(uuid, text, text, text) from anon;
+revoke all on function public.consume_generation_for_user(uuid, text, text, text) from authenticated;
+grant execute on function public.consume_generation_for_user(uuid, text, text, text) to service_role;
 
 -- 브라우저는 '업체 정보 4개 컬럼'만 수정할 수 있다. 요금제·횟수·이메일은 컬럼 권한 자체를 주지 않는다.
 revoke update on public.profiles from authenticated;
@@ -206,3 +259,51 @@ grant select on public.generation_logs to authenticated;
 -- ── 4. 요금제 수동 변경(관리자용, SQL Editor에서 실행) ─────────────────
 -- update public.profiles set plan = 'light', monthly_limit = 15, used_count = 0,
 --   period_start = date_trunc('month', now()) where email = '사장님@이메일';
+
+-- ── 5. 신청서(leads) 테이블 — Edge Function(submit-lead)만 저장합니다 ─────
+-- 공개 번들에 있던 GAS 웹훅 URL을 없애고, 신청은 이 테이블에만 쌓습니다.
+-- RLS를 켜고 정책을 하나도 만들지 않습니다 → anon/authenticated 는 select/insert/update/delete 모두 불가.
+-- 저장은 service_role(submit-lead Edge Function)만 하고, 조회·연락은 관리자(SQL Editor/대시보드)에서 합니다.
+create table if not exists public.leads (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  industry text not null,
+  region text not null default '',
+  contact text not null,
+  plan text not null default '미정',
+  page text not null default '',
+  source text not null default 'web',
+  status text not null default 'new',
+  ip_hash text not null default '',
+  user_agent text not null default '',
+  created_at timestamptz not null default now()
+);
+
+alter table public.leads enable row level security;
+
+revoke all on public.leads from anon;
+revoke all on public.leads from authenticated;
+grant all on public.leads to service_role;
+
+-- 길이·형식은 DB에서도 한 번 더 막는다. (Edge Function 검증을 우회한 직접 insert 대비)
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'leads_name_len') then
+    alter table public.leads
+      add constraint leads_name_len check (char_length(name) between 2 and 60),
+      add constraint leads_industry_len check (char_length(industry) between 1 and 40),
+      add constraint leads_region_len check (char_length(region) <= 60),
+      add constraint leads_contact_len check (char_length(contact) between 8 and 20),
+      add constraint leads_plan_len check (char_length(plan) <= 20),
+      add constraint leads_page_len check (char_length(page) <= 300),
+      add constraint leads_status_chk check (status in ('new', 'contacted', 'converted', 'spam'));
+  end if;
+end $$;
+
+create index if not exists leads_created_idx on public.leads (created_at desc);
+create index if not exists leads_contact_idx on public.leads (contact, created_at desc);
+create index if not exists leads_ip_idx on public.leads (ip_hash, created_at desc);
+
+-- 최근 신청 확인(관리자):
+-- select created_at, name, industry, region, contact, plan, status
+--   from public.leads order by created_at desc limit 20;

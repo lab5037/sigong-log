@@ -1,19 +1,19 @@
 /* 현장로그 — 화면 로직
- * · 원고 엔진(engine.js) + 캔버스(canvas.js) 연결
- * · 선택 기능: Gemini 사진 인식(문장 다듬기), 신청 알림 웹훅(GAS → 텔레그램)
- *   아래 두 값은 공개 저장소에 그대로 올라가므로 실제 토큰·번호를 넣지 않는다.
+ * · 원고는 서버(Supabase Edge Function generate-post)에서만 만듭니다.
+ *   브라우저에는 원고 생성기가 없고, 서버가 잔여 횟수를 차감한 뒤에만 결과를 돌려줍니다.
+ * · 신청서는 Edge Function submit-lead 로 보냅니다(leads 테이블 저장 + 텔레그램 알림).
+ *   공개 번들에는 웹훅 URL·봇 토큰 같은 비밀값을 두지 않습니다.
+ * · 화면 표시용 업종·채널 목록은 catalog.js, 예시 체험 결과는 demo-result.js 에 있습니다.
  */
 (function () {
   'use strict';
 
-  const E = window.FieldLogEngine;
+  const CAT = window.FieldLogCatalog;
+  const DEMO = window.FieldLogDemo;
   const C = window.FieldLogCanvas;
 
-  /* ── 설정 (공개 저장소용 플레이스홀더) ───────────────────────────── */
+  /* ── 설정 (공개 저장소용 값만) ───────────────────────────────────── */
   const CONFIG = {
-    // 구글 앱스 스크립트 웹앱 URL (gas/sigong_notify_template.gs 참고)
-    // 2026-11-19 배포: 현장로그-알림봇(GAS 웹앱) → 텔레그램 @pickleryeol_bot
-    webhookUrl: window.FIELDLOG_WEBHOOK || 'https://script.google.com/macros/s/AKfycbzbgaXQ4HxYCBJnbiROPV2V1GV53oVHZ57QkqkqM74dNkgoxEk-ZEWCnXqU3AyEx8s/exec',
     geminiModel: 'gemini-2.5-flash'
   };
 
@@ -42,7 +42,6 @@
     draft: 'fieldlog.draft.v1',
     gemini: 'fieldlog.gemini.v1',
     layout: 'fieldlog.layout.v1',
-    webhook: 'fieldlog.webhook.v1',
     lead: 'fieldlog.lead.v1',
     channel: 'fieldlog.channel.v1',
     owner: 'fieldlog.owner.v1'   // 마지막으로 로그인한 계정 id (계정 전환 감지용)
@@ -63,6 +62,8 @@
     sampleBizData: null,
     plan: '',
     lastDemo: false,
+    demoScene: false,   // [예시로 바로 체험하기]로 채운 가상 현장인지
+    posts: null,        // 서버가 한 번에 만들어 준 4채널 결과 (채널 전환은 무료)
     genBusy: false
   };
 
@@ -227,7 +228,7 @@
       if (p.shop_name) $('#bizName').value = p.shop_name;
       if (p.shop_contact) $('#bizContact').value = p.shop_contact;
       if (p.closing) $('#bizClosing').value = p.closing;
-      if (p.tone && E.STYLE_LABEL[p.tone]) { state.tone = p.tone; paintTone(); }
+      if (p.tone && CAT.STYLE_LABEL[p.tone]) { state.tone = p.tone; paintTone(); }
       updateBizSummary();
       write(STORE.biz, currentBiz());
       if (p.shop_name) {
@@ -460,74 +461,68 @@
     }
   }
 
-  // 서버에서 횟수를 차감(원자적)한 뒤에만 원고를 만든다.
-  async function ensureQuota() {
-    if (!auth.sb) {
-      toast('로그인 모듈을 불러오지 못했어요 — 이번 원고는 횟수 집계 없이 만들어 드립니다');
-      return { allowed: true, local: true };
-    }
-    if (!auth.session) {
-      auth.pending = true;
-      openAuthModal('gate');
-      return { allowed: false };
-    }
-    if (auth.schemaMissing) {
-      toast('체험 횟수 잠금이 서버에 아직 없어 이번 원고는 집계 없이 만들어 드려요');
-      return { allowed: true, local: true };
-    }
-    const input = collectInput();
-    const ind = E.getIndustry(input.industryId);
-    let res;
+  // 원고는 서버(Edge Function)에서만 만듭니다. 서버가 횟수를 차감하고 결과를 돌려줍니다.
+  // 여기서 실패하면 원고를 만들지 않습니다(fail-closed). 브라우저 우회 생성 경로는 없습니다.
+  async function requestPosts(input) {
+    if (!auth.sb) return { ok: false, reason: 'no_client', payload: {} };
+    if (!auth.session) return { ok: false, reason: 'not_authenticated', payload: {} };
     try {
-      res = await auth.sb.rpc('consume_generation', {
-        p_industry: ind ? ind.label : '',
-        p_channel: state.channel,
-        p_region: input.place || ''
-      });
+      const res = await auth.sb.functions.invoke('generate-post', { body: input });
+      let payload = res.data;
+      let status = 0;
+      if (res.error) {
+        const ctx = res.error.context;
+        if (ctx) {
+          status = ctx.status || 0;
+          try { payload = await ctx.json(); } catch (e) { payload = null; }
+        }
+        return { ok: false, status: status, payload: payload || {} };
+      }
+      if (!payload || payload.ok !== true || !payload.posts) {
+        return { ok: false, status: status, payload: {} };
+      }
+      return { ok: true, posts: payload.posts, quota: payload.quota || null };
     } catch (e) {
-      res = { error: e };
+      console.warn('[현장로그] 원고 생성 요청 실패', e);
+      return { ok: false, status: 0, payload: {} };
     }
-    if (res.error) {
-      if (isSchemaMissing(res.error)) {
-        auth.schemaMissing = true;
-        paintAuth();
-        toast('체험 횟수 잠금이 서버에 아직 없어 이번 원고는 집계 없이 만들어 드려요');
-        return { allowed: true, local: true };
-      }
-      const msg = String(res.error.message || '');
-      if (res.error.status === 401 || /jwt|token is expired/i.test(msg)) {
-        auth.pending = true;
-        openAuthModal('gate');
-        authMsg('로그인이 만료됐어요. 다시 로그인해 주세요.');
-        return { allowed: false };
-      }
-      console.warn('[현장로그] consume_generation 실패', res.error);
-      toast('체험 횟수를 확인하지 못했어요. 잠시 후 다시 눌러 주세요');
-      return { allowed: false };
-    }
-    const data = res.data || {};
-    if (data.allowed) { applyUsage(data); return { allowed: true }; }
-    if (data.reason === 'not_authenticated') {
+  }
+
+  function handleGenError(res) {
+    const payload = res.payload || {};
+    const reason = payload.reason || res.reason || '';
+    if (res.status === 401 || reason === 'not_authenticated') {
       auth.pending = true;
       openAuthModal('gate');
-      return { allowed: false };
+      authMsg('로그인이 만료됐어요. 다시 로그인해 주세요.');
+      return;
     }
-    openLimitModal(data);
-    return { allowed: false, reason: data.reason };
+    if (res.status === 402 && (reason === 'trial_exhausted' || reason === 'monthly_limit')) {
+      openLimitModal({ reason: reason, used: payload.used, limit: payload.limit });
+      return;
+    }
+    if (reason === 'schema_not_installed') {
+      toast('원고 서버 준비가 끝나지 않았어요 — 관리자에게 알려주세요');
+      return;
+    }
+    if (reason === 'invalid_input') {
+      toast('현장 정보를 확인해 주세요 (동네·업종은 필수예요)');
+      return;
+    }
+    if (reason === 'no_client') {
+      toast('로그인 모듈을 불러오지 못했어요 — 새로고침 후 다시 시도해 주세요');
+      return;
+    }
+    toast('원고를 만들지 못했어요. 잠시 후 다시 눌러 주세요');
   }
 
   function setGenBusy(on) {
     const btn = $('#generateBtn');
     if (btn) {
       btn.disabled = on;
-      btn.textContent = on ? '확인 중…' : '후기 만들기';
+      btn.textContent = on ? '만드는 중…' : '후기 만들기';
     }
     $$('#regenBtn, #newJobBtn').forEach(function (b) { b.disabled = on; });
-  }
-
-  // 예시 현장(가상 데이터 + assets/demo-*.jpg)은 누구나 자유롭게 미리보기
-  function isDemoScene() {
-    return !!state.sampleBizData && $('#placeInput').value.trim() === 'OO구 OO아파트 34평';
   }
 
   /* ── 토스트 ─────────────────────────────────────────────────────── */
@@ -580,7 +575,7 @@
 
   /* ── 채널 선택 ──────────────────────────────────────────────────── */
   function renderChannelChips() {
-    const html = E.CHANNELS.map(function (c) {
+    const html = CAT.CHANNELS.map(function (c) {
       return '<button class="channel-chip" type="button" data-channel="' + c.id + '">' +
         '<span class="cc-emoji" aria-hidden="true">' + c.emoji + '</span>' +
         '<span class="cc-text"><strong>' + c.label + '</strong><small>' + c.short + '</small></span>' +
@@ -591,7 +586,7 @@
   }
 
   function paintChannel() {
-    const ch = E.getChannel(state.channel);
+    const ch = CAT.getChannel(state.channel);
     $$('.channel-chip').forEach(function (b) {
       b.classList.toggle('is-on', b.getAttribute('data-channel') === ch.id);
     });
@@ -606,16 +601,22 @@
   }
 
   function setChannel(id) {
-    const ch = E.getChannel(id);
+    const ch = CAT.getChannel(id);
     if (state.channel === ch.id) return;
     state.channel = ch.id;
     write(STORE.channel, ch.id);
     paintChannel();
     if (state.view === 'result' && state.result) {
-      state.result = E.generate(collectInput());
+      // 서버가 한 번에 4채널을 만들어 두므로 채널 전환은 횟수를 더 쓰지 않는다.
+      const next = state.lastDemo ? DEMO.get(ch.id) : (state.posts ? state.posts[ch.id] : null);
+      if (!next) {
+        toast('채널을 바꾸려면 [다시 만들기]를 눌러 주세요');
+        return;
+      }
+      state.result = next;
       renderResult();
       drawCompare();
-      toast(ch.label + ' 형식으로 다시 뽑았어요');
+      toast(ch.label + ' 형식으로 바꿨어요');
     } else {
       toast(ch.label + ' 형식으로 만들게요');
     }
@@ -624,7 +625,7 @@
   /* ── 랜딩: 업종 카드 ────────────────────────────────────────────── */
   function renderLanding() {
     const grid = $('#landIndustryGrid');
-    grid.innerHTML = E.INDUSTRIES.map(function (ind) {
+    grid.innerHTML = CAT.INDUSTRIES.map(function (ind) {
       const flow = ind.processes.slice(0, 4).map(function (p) { return p.name; }).join(' → ');
       return '<article class="industry-card">' +
         '<span class="ic-emoji">' + ind.emoji + '</span>' +
@@ -639,7 +640,7 @@
   function renderApplyForm() {
     const sel = $('#coIndustry');
     sel.innerHTML = ['<option value="">업종을 선택해 주세요</option>'].concat(
-      E.INDUSTRIES.map(function (i) { return '<option value="' + i.label + '">' + i.label + '</option>'; })
+      CAT.INDUSTRIES.map(function (i) { return '<option value="' + i.label + '">' + i.label + '</option>'; })
     ).join('');
   }
 
@@ -660,30 +661,39 @@
     ].join('\n');
   }
 
-  function getWebhookUrl() {
-    const saved = read(STORE.webhook, '');
-    const url = saved || CONFIG.webhookUrl;
-    if (!url || url === 'YOUR_GAS_WEBHOOK_URL' || !/^https?:\/\//.test(url)) return '';
-    return url;
-  }
-
-  function sendLead(url, lead) {
-    // GAS 웹앱은 CORS 응답 헤더가 없어 결과를 읽을 수 없다. 요청만 보내고 화면은 복사 안내를 함께 제공한다.
-    return fetch(url, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({
-        type: '현장로그 체험신청',
-        name: lead.name,
-        industry: lead.industry,
-        region: lead.region,
-        contact: lead.contact,
-        plan: planLabel(lead.plan),
-        at: lead.at,
-        page: location.href
-      })
-    });
+  // 신청은 서버(Edge Function submit-lead)로 보낸다. 서버가 leads 테이블에 저장하고 텔레그램 알림을 보낸다.
+  // (공개 번들에 웹훅 URL·봇 토큰이 없어 누구나 알림을 위조해 보낼 수 없다)
+  async function submitLead(lead) {
+    if (!auth.sb) return { ok: false, reason: 'no_client' };
+    try {
+      const res = await auth.sb.functions.invoke('submit-lead', {
+        body: {
+          name: lead.name,
+          industry: lead.industry,
+          region: lead.region,
+          contact: lead.contact,
+          plan: planLabel(lead.plan),
+          page: location.href,
+          agree: true,
+          website: $('input[name="company_website"]') ? $('input[name="company_website"]').value : ''
+        }
+      });
+      let payload = res.data;
+      let status = 0;
+      if (res.error) {
+        const ctx = res.error.context;
+        if (ctx) {
+          status = ctx.status || 0;
+          try { payload = await ctx.json(); } catch (e) { payload = null; }
+        }
+        return { ok: false, status: status, reason: (payload && payload.reason) || '' };
+      }
+      if (!payload || payload.ok !== true) return { ok: false, status: status, reason: '' };
+      return { ok: true, duplicate: !!payload.duplicate, notified: !!payload.notified, accepted: payload.accepted !== false };
+    } catch (e) {
+      console.warn('[현장로그] 신청 전송 실패', e);
+      return { ok: false, reason: '' };
+    }
   }
 
   function paintPlanNote() {
@@ -694,15 +704,28 @@
     el.innerHTML = '희망 요금제 : <strong>' + escapeHtml(state.plan) + '</strong> <button type="button" class="plan-clear">변경</button>';
   }
 
-  function paintWebhookState() {
-    const el = $('#webhookState');
-    const input = $('#webhookInput');
-    if (input) input.value = read(STORE.webhook, '');
-    if (!el) return;
-    const url = getWebhookUrl();
-    el.textContent = url
-      ? '연결됨 · ' + url.replace(/^https:\/\/([^/]+).*$/, '$1') + ' 로 신청 알림이 갑니다'
-      : '미설정 — 지금은 신청 내용을 복사해 보내는 방식으로 동작합니다';
+  function setLeadState(stateName, notified) {
+    const title = $('#applyDoneTitle');
+    const sub = $('#applyDoneSub');
+    const line = $('#leadState');
+    const map = {
+      sending: ['신청을 보내고 있어요', '잠시만 기다려 주세요.'],
+      ok: ['신청이 접수됐습니다', '확인 후 순서대로 연락드리겠습니다. 아래 내용은 보관용입니다.'],
+      duplicate: ['이미 접수된 신청이에요', '같은 연락처로 이미 접수되어 있습니다. 곧 연락드리겠습니다.'],
+      limited: ['잠시 후 다시 시도해 주세요', '짧은 시간에 신청이 많았어요. 아래 내용을 복사해 보내주셔도 됩니다.'],
+      failed: ['신청을 보내지 못했어요', '아래 내용을 복사해서 안내받은 카톡·문자로 보내주세요.']
+    };
+    const m = map[stateName] || map.failed;
+    if (title) title.textContent = m[0];
+    if (sub) sub.textContent = m[1];
+    if (!line) return;
+    if (stateName === 'ok' && notified === false) {
+      line.hidden = false;
+      line.textContent = '접수는 저장됐고, 알림 발송만 지연되고 있어요. 연락은 정상적으로 드립니다.';
+    } else {
+      line.hidden = true;
+      line.textContent = '';
+    }
   }
 
   function fmtNow() {
@@ -739,18 +762,24 @@
     $('#applyPreview').textContent = leadText(lead);
     $('#applyFormWrap').hidden = true;
     $('#applyDone').hidden = false;
-
-    const url = getWebhookUrl();
-    if (url) {
-      sendLead(url, lead).then(function () {
-        toast('접수 알림을 전송했어요');
-      }).catch(function () {
-        toast('알림 전송이 막혔어요. 아래 내용을 복사해 보내주세요.');
-      });
-    } else {
-      toast('신청 내용을 준비했어요');
-    }
+    setLeadState('sending');
     $('#applyDone').scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    submitLead(lead).then(function (r) {
+      if (r.ok && r.duplicate) { setLeadState('duplicate'); toast('이미 접수된 신청이에요'); return; }
+      if (r.ok) {
+        setLeadState('ok', r.notified);
+        toast('신청이 접수됐어요');
+        return;
+      }
+      if (r.reason === 'rate_limited' || r.reason === 'hourly_cap') {
+        setLeadState('limited');
+        toast('잠시 후 다시 시도해 주세요');
+        return;
+      }
+      setLeadState('failed');
+      toast('전송이 막혔어요. 아래 내용을 복사해 보내주세요.');
+    });
   }
 
   /* ── 업체 정보 ──────────────────────────────────────────────────── */
@@ -803,7 +832,7 @@
   function updateBizSummary() {
     const biz = currentBiz();
     const el = $('#bizSummary');
-    if (biz.name) el.textContent = biz.name + ' · ' + (E.STYLE_LABEL[biz.style] || '');
+    if (biz.name) el.textContent = biz.name + ' · ' + (CAT.STYLE_LABEL[biz.style] || '');
     else el.textContent = '한 번만 저장하면 다음부터 자동으로 들어갑니다';
   }
 
@@ -816,7 +845,7 @@
   /* ── 작성 폼 ────────────────────────────────────────────────────── */
   function renderIndustryChips() {
     const box = $('#industryChips');
-    box.innerHTML = E.INDUSTRIES.map(function (i) {
+    box.innerHTML = CAT.INDUSTRIES.map(function (i) {
       return '<button class="chip" type="button" data-id="' + i.id + '">' + i.emoji + ' ' + i.label + '</button>';
     }).join('');
   }
@@ -825,7 +854,7 @@
     $$('#industryChips .chip').forEach(function (c) {
       c.classList.toggle('is-on', c.getAttribute('data-id') === state.industryId);
     });
-    const ind = E.getIndustry(state.industryId);
+    const ind = CAT.getIndustry(state.industryId);
     const extraRow = $('#extraField');
     if (ind && ind.extra) {
       extraRow.hidden = false;
@@ -848,6 +877,7 @@
 
   function saveDraftSoon() {
     state.lastDemo = false;
+    state.demoScene = false;
     write(STORE.draft, {
       industryId: state.industryId,
       place: $('#placeInput').value,
@@ -943,6 +973,7 @@
   function handleFile(slot, file) {
     if (!file) return;
     state.lastDemo = false;
+    state.demoScene = false;
     if (!/^image\//.test(file.type)) { toast('사진 파일만 올릴 수 있어요'); return; }
     readFileAsDataURL(file).then(function (raw) {
       return shrink(raw, 1400, 0.9);
@@ -984,8 +1015,8 @@
   }
 
   function aiPrompt(draft) {
-    const tone = E.STYLE_LABEL[state.tone] || '친근한 해요체';
-    const ch = E.getChannel(state.channel);
+    const tone = CAT.STYLE_LABEL[state.tone] || '친근한 해요체';
+    const ch = CAT.getChannel(state.channel);
     const rules = ch.id === 'blog'
       ? [
           "3. '[📸 사진 위치 : ...]' 줄은 글자 그대로 유지하고, 그 바로 아래 줄에 '→ ' 로 시작하는 사진 설명 한 줄을 추가한다. (사진에서 보이는 것만)",
@@ -1069,8 +1100,8 @@
     if (manual) toast('사진을 읽고 있어요');
     try {
       const polished = await callGemini(aiPrompt(state.result.body), state.photos);
-      const clean = E.sanitize(polished);
-      const ch = E.getChannel(state.channel);
+      const clean = CAT.sanitize(polished);
+      const ch = CAT.getChannel(state.channel);
       if (clean.length < (ch.id === 'blog' ? 250 : 80)) throw new Error('결과가 짧습니다');
       if (ch.id === 'blog' && clean.indexOf('■') < 0) throw new Error('형식이 깨졌습니다');
       setBody(clean);
@@ -1122,37 +1153,54 @@
     opts = opts || {};
     if (!validate()) return;
     if (state.genBusy) return;
-    const demo = opts.sample === true || isDemoScene();
-    if (!demo) {
-      state.genBusy = true;
-      setGenBusy(true);
-      let q;
-      try {
-        q = await ensureQuota();
-      } finally {
-        state.genBusy = false;
-        setGenBusy(false);
-      }
-      if (!q || !q.allowed) return;
+
+    // 가상 예시 현장은 서버를 부르지 않고 고정된 예시 결과만 보여준다.
+    if (opts.sample === true || state.demoScene) { showDemo(); return; }
+
+    if (!auth.session) {
+      auth.pending = true;
+      openAuthModal('gate');
+      return;
     }
-    const input = collectInput();
-    state.result = E.generate(input);
-    state.lastDemo = demo;
+
+    state.genBusy = true;
+    setGenBusy(true);
+    try {
+      const res = await requestPosts(collectInput());
+      if (!res.ok) { handleGenError(res); return; }
+      state.posts = res.posts;
+      state.result = res.posts[state.channel] || res.posts.blog;
+      state.lastDemo = false;
+      if (res.quota) applyUsage(res.quota);
+      renderResult();
+      showView('result');
+      drawCompare();
+      if (aiReady()) runAI(false);
+    } finally {
+      state.genBusy = false;
+      setGenBusy(false);
+    }
+  }
+
+  // 고정 예시 결과(가상 데이터) 미리보기 — 횟수 차감 없음, 생성기도 부르지 않음
+  function showDemo() {
+    state.posts = null;
+    state.result = DEMO.get(state.channel);
+    state.lastDemo = true;
     renderResult();
     showView('result');
     drawCompare();
-    if (aiReady()) runAI(false);
   }
 
   function refreshFullText() {
-    if (state.result) state.result.fullText = E.fullTextOf(state.result);
+    if (state.result) state.result.fullText = CAT.fullTextOf(state.result);
   }
 
   function renderResult() {
     const r = state.result;
     if (!r) return;
-    const ind = E.getIndustry(r.industryId);
-    const ch = E.getChannel(r.channel);
+    const ind = CAT.getIndustry(r.industryId);
+    const ch = CAT.getChannel(r.channel);
     $('#resultMeta').textContent = ch.label + ' · ' + (ind ? ind.label : '') + ' · ' + r.summary[0].v;
 
     const hasTitles = r.titles.length > 0;
@@ -1225,7 +1273,7 @@
   async function drawCompare() {
     const r = state.result;
     if (!r) return;
-    const ind = E.getIndustry(r.industryId);
+    const ind = CAT.getIndustry(r.industryId);
     try {
       if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (e) {} }
       compareCanvas = await C.compose({
@@ -1301,7 +1349,8 @@
       paintChannel();
     }
     state.industryId = 'grout';
-    state.seed = Date.now() % 100000;
+    state.seed = DEMO.input.seed;
+    state.demoScene = true;
     $('#placeInput').value = 'OO구 OO아파트 34평';
     $('#detailInput').value = '욕실 줄눈 곰팡이, 탄성코트 희망';
     $('#priceInput').value = '35~40만 원';
@@ -1355,22 +1404,6 @@
 
     // 신청 폼
     $('#applyForm').addEventListener('submit', handleApply);
-    $('#saveWebhookBtn').addEventListener('click', function () {
-      const url = $('#webhookInput').value.trim();
-      if (url && !/^https:\/\//.test(url)) { toast('https:// 로 시작하는 URL을 넣어주세요'); return; }
-      write(STORE.webhook, url);
-      paintWebhookState();
-      toast(url ? '알림 웹훅을 저장했어요' : '웹훅을 비웠어요');
-    });
-    $('#testWebhookBtn').addEventListener('click', function () {
-      const url = getWebhookUrl();
-      if (!url) { toast('먼저 웹훅 URL을 저장해 주세요'); return; }
-      sendLead(url, {
-        name: '테스트', industry: '입주·이사청소', region: '테스트', contact: '010-0000-0000',
-        plan: '테스트', at: fmtNow()
-      }).then(function () { toast('테스트 알림을 보냈어요 (텔레그램 확인)'); })
-        .catch(function () { toast('전송이 막혔어요. URL을 다시 확인해 주세요'); });
-    });
     $('#copyApplyBtn').addEventListener('click', function () {
       copyText($('#applyPreview').textContent, '신청 내용을 복사했어요');
     });
@@ -1551,8 +1584,9 @@
     });
     $('#aiBtn').addEventListener('click', function () { runAI(true); });
     $('#regenBtn').addEventListener('click', function () {
+      if (state.lastDemo) { showDemo(); return; }
       state.seed = (state.seed + 1 + Math.floor(Math.random() * 97)) >>> 0;
-      doGenerate({ sample: state.lastDemo });
+      doGenerate({ sample: false });
     });
     $('#newJobBtn').addEventListener('click', function () {
       clearPhotos();
@@ -1561,6 +1595,9 @@
       $('#priceInput').value = '';
       $('#extraInput').value = '';
       state.result = null;
+      state.posts = null;
+      state.lastDemo = false;
+      state.demoScene = false;
       state.aiTouched = false;
       showView('write');
       $('#placeInput').focus();
@@ -1569,7 +1606,7 @@
 
   /* ── 시작 ───────────────────────────────────────────────────────── */
   function init() {
-    state.channel = E.getChannel(read(STORE.channel, 'blog')).id;
+    state.channel = CAT.getChannel(read(STORE.channel, 'blog')).id;
     renderLanding();
     renderApplyForm();
     renderIndustryChips();
@@ -1585,10 +1622,6 @@
     paintAuth();
     paintAiRow();
     initSupabase();
-
-    paintWebhookState();
-    if (getWebhookUrl()) console.info('[현장로그] 신청 알림 웹훅이 설정돼 있습니다.');
-
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

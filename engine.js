@@ -9,6 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  /* ===== ENGINE CORE START (supabase/functions/generate-post/engine.ts와 같은 내용이어야 함 — tests/engine-parity.test.mjs가 검사) ===== */
   /* ─────────────────────────── 티어1 업종 데이터 ─────────────────────────── */
 
   const INDUSTRIES = [
@@ -1023,6 +1024,8 @@
     result.fullText = fullTextOf(result);
     return result;
   }
+
+  /* ===== ENGINE CORE END ===== */
 
   return {
     INDUSTRIES: INDUSTRIES,

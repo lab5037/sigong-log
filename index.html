@@ -23,7 +23,7 @@
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 <link rel="preconnect" href="https://khivycnezspevendmdtx.supabase.co" crossorigin />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
-<link rel="stylesheet" href="styles.css?v=20261119n" />
+<link rel="stylesheet" href="styles.css?v=20261119a" />
 <script>
 /* 진단용: 콘솔 오류를 조용히 모아 둡니다(화면에는 영향 없음). */
 window.__flel = [];
@@ -322,16 +322,21 @@ OO클린입니다. OO구 근처는 일정만 맞으면 당일도 가능한 경�
               <span>체험 안내 목적의 연락처 수집·이용에 동의합니다 (안내 외 미사용 · 요청 시 즉시 파기)</span>
             </label>
             <p class="form-error" id="applyError" hidden></p>
+            <div class="hp-field" aria-hidden="true">
+              <label for="companyWebsite">회사 웹사이트</label>
+              <input id="companyWebsite" name="company_website" type="text" tabindex="-1" autocomplete="off" />
+            </div>
             <button class="btn btn-primary btn-lg btn-block" type="submit">무료 체험 신청하기</button>
-            <p class="form-note">신청 내용은 아래 화면에서 복사해 안내받은 카톡·문자로 보내주시면 됩니다.</p>
+            <p class="form-note">신청 내용은 서버로 바로 접수되고, 필요하면 아래 화면에서 복사해 두실 수 있습니다.</p>
           </form>
         </div>
 
         <div id="applyDone" hidden>
           <div class="done-mark" aria-hidden="true">✓</div>
-          <h2 class="section-title">신청 내용이 준비됐습니다</h2>
-          <p class="section-sub">아래 내용을 복사해서 안내받은 카톡·문자로 보내주세요. 순서대로 연락드리겠습니다.</p>
+          <h2 class="section-title" id="applyDoneTitle">신청을 보내고 있어요</h2>
+          <p class="section-sub" id="applyDoneSub">잠시만 기다려 주세요.</p>
           <pre class="apply-preview" id="applyPreview"></pre>
+          <p class="form-note" id="leadState" hidden></p>
           <button class="btn btn-primary btn-block" id="copyApplyBtn" type="button">신청 내용 복사</button>
           <button class="btn btn-ghost btn-block" id="editApplyBtn" type="button">다시 작성</button>
           <p class="form-note">체험 3건은 상호명·업종·사진만 있으면 바로 시작할 수 있습니다.</p>
@@ -346,22 +351,13 @@ OO클린입니다. OO구 근처는 일정만 맞으면 당일도 가능한 경�
       <p class="foot-small">문의 : 무료 체험 신청서를 남겨주시면 안내드립니다.</p>
 
       <details class="admin-set">
-        <summary>관리자 설정 · 알림 · AI 키</summary>
-        <p class="hint">구글 앱스 스크립트 웹앱 URL을 넣으면 무료 체험 신청이 텔레그램으로 알림 됩니다. 값은 이 브라우저에만 저장되고 사이트 코드에는 남지 않습니다.</p>
-        <div class="field">
-          <label for="webhookInput">웹훅 URL</label>
-          <input id="webhookInput" type="text" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off" />
-        </div>
-        <div class="btn-row">
-          <button class="btn btn-ghost btn-sm" id="saveWebhookBtn" type="button">저장</button>
-          <button class="btn btn-ghost btn-sm" id="testWebhookBtn" type="button">테스트 알림 보내기</button>
-        </div>
-        <p class="hint" id="webhookState">미설정</p>
+        <summary>관리자 설정 · AI 키</summary>
+        <p class="hint">무료 체험 신청은 서버(Supabase)로 접수되고 텔레그램으로 알림이 갑니다. 알림 설정은 서버 Secrets(<code>TELEGRAM_BOT_TOKEN</code> · <code>TELEGRAM_CHAT_ID</code>)에서 하고, 이 페이지에는 어떤 비밀값도 넣지 않습니다.</p>
 
         <div class="field admin-ai">
           <label for="geminiKey">Gemini API 키 (사진 인식·문장 다듬기, 선택)</label>
           <input id="geminiKey" type="password" placeholder="AIza..." autocomplete="off" />
-          <p class="hint">넣지 않아도 기본 엔진으로 그대로 동작합니다. 키는 이 브라우저에만 저장되며 서버로 가지 않습니다. 키가 있는 기기에서만 결과 화면의 [AI로 문장 다듬기]가 보입니다.</p>
+          <p class="hint">넣지 않아도 서버 원고 그대로 사용하실 수 있습니다. 키는 이 브라우저에만 저장되며 현장로그 서버로 가지 않습니다. 키가 있는 기기에서만 결과 화면의 [AI로 문장 다듬기]가 보입니다.</p>
         </div>
         <p class="hint" id="sysState">계정 서버 상태 확인 중…</p>
       </details>
@@ -683,8 +679,9 @@ OO클린입니다. OO구 근처는 일정만 맞으면 당일도 가능한 경�
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="engine.js?v=20261119n"></script>
+<script src="catalog.js?v=20261119a"></script>
+<script src="demo-result.js?v=20261119a"></script>
 <script src="canvas.js?v=20261119n"></script>
-<script src="app.js?v=20261119s"></script>
+<script src="app.js?v=20261119a"></script>
 </body>
 </html>
