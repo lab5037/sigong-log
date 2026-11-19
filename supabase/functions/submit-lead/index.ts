@@ -29,6 +29,7 @@ const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') || '';
 const CHAT_ID = Deno.env.get('TELEGRAM_CHAT_ID') || '';
 const IP_SALT = Deno.env.get('LEAD_IP_SALT') || SERVICE_KEY || 'fieldlog';
 const HOURLY_CAP = Number(Deno.env.get('MAX_LEADS_PER_HOUR') || '30') || 30;
+const PER_IP_LIMIT = Number(Deno.env.get('MAX_LEADS_PER_IP') || '5') || 5;
 
 function clientIp(req: Request): string {
   const xff = req.headers.get('x-forwarded-for') || '';
@@ -118,7 +119,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return json(req, { ok: true, duplicate: true }, 200);
     }
 
-    const spam = decideSpam(byIp.count || 0, hourly.count || 0, { hourlyCap: HOURLY_CAP });
+    const spam = decideSpam(byIp.count || 0, hourly.count || 0, { perIpLimit: PER_IP_LIMIT, hourlyCap: HOURLY_CAP });
     if (spam.blocked) {
       return json(req, { ok: false, reason: spam.reason }, 429);
     }

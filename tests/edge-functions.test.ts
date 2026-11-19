@@ -100,8 +100,10 @@ Deno.test('submit-lead: 텔레그램 문구 HTML 이스케이프', () => {
 
 Deno.test('submit-lead: 스팸 판정', () => {
   assertEquals(decideSpam(0, 0).blocked, false);
-  assertEquals(decideSpam(3, 5).blocked, true);
-  assertEquals(decideSpam(3, 5).reason, 'rate_limited');
+  assertEquals(decideSpam(5, 5).blocked, true);
+  assertEquals(decideSpam(5, 5).reason, 'rate_limited');
+  assertEquals(decideSpam(4, 5).blocked, false);
+  assertEquals(decideSpam(3, 5, { perIpLimit: 3 }).blocked, true);
   assertEquals(decideSpam(1, 30).blocked, true);
   assertEquals(decideSpam(1, 30).reason, 'hourly_cap');
 });

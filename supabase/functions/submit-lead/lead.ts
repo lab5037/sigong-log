@@ -103,9 +103,10 @@ export interface SpamDecision {
   reason?: 'rate_limited' | 'hourly_cap';
 }
 
-/** 같은 IP의 최근 접수 건수로 스팸을 막는다. (중복 접수는 라우터에서 연락처로 따로 본다) */
+/** 같은 IP의 최근 접수 건수로 스팸을 막는다. (중복 접수는 라우터에서 연락처로 따로 본다)
+ *  통신사 NAT로 여러 사람이 같은 IP를 쓰므로 한도를 낮게 잡지 않는다(기본 10분 5건). */
 export function decideSpam(recentByIp: number, hourlyTotal: number, opts?: { perIpLimit?: number; hourlyCap?: number }): SpamDecision {
-  const perIpLimit = opts?.perIpLimit ?? 3;
+  const perIpLimit = opts?.perIpLimit ?? 5;
   const hourlyCap = opts?.hourlyCap ?? 30;
   if (hourlyTotal >= hourlyCap) return { blocked: true, reason: 'hourly_cap' };
   if (recentByIp >= perIpLimit) return { blocked: true, reason: 'rate_limited' };

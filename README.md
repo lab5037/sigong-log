@@ -103,8 +103,9 @@
   `leads`는 RLS로 anon/authenticated 직접 조회·수정이 막혀 있습니다(service_role 전용).
 - 텔레그램 설정은 서버 Secrets에만 둡니다: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
   값이 없으면 접수는 정상 저장되고 알림만 생闡니다(`notified:false`).
-- 스팸 방지: 같은 연락처 5분 내 중복은 저장하지 않고 성공 응답, 같은 IP 10분 내 3건,
-  전체 시간당 30건(`MAX_LEADS_PER_HOUR`로 조정) 초과 시 429, 숨김 입력칸(허니팟) 채우면 조용히 무시.
+- 스팸 방지: 같은 연락처 5분 내 중복은 저장하지 않고 성공 응답, 같은 IP 10분 내 5건(`MAX_LEADS_PER_IP`),
+  전체 시간당 30건(`MAX_LEADS_PER_HOUR`) 초과 시 429, 숨김 입력칸(허니팟) 채우면 조용히 무시.
+  (통신사 NAT로 IP를 공유하는 경우가 많아 IP 한도는 넉넉히 두고, 중복·시간당 상한을 주 방어로 씁니다.)
 - 접수된 신청 확인(SQL Editor):
   ```sql
   select created_at, name, industry, region, contact, plan, status
