@@ -1543,6 +1543,8 @@
     bind();
     loadBiz();
     loadDraft();
+    // 예전 버전이 브라우저에 저장해 둔 Gemini 키는 더 이상 쓰지 않는다 — 남겨 두지 않는다.
+    try { window.localStorage.removeItem('fieldlog.gemini.v1'); } catch (e) {}
     state.layout = read(STORE.layout, 'h');
     if (!state.industryId) state.industryId = '';
 
