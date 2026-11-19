@@ -628,3 +628,5 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 /* 결과 화면 채널 칩은 2열 — 라벨이 두 줄로 접히지 않게 */
 .channel-chip strong { line-height: 1.35; }
 .channel-chips.is-compact { grid-template-columns: repeat(2, 1fr); }
+
+.stage-note { color: var(--ink-2); font-weight: 600; }
