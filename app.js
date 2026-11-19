@@ -643,7 +643,7 @@
 
   function validate() {
     if (!state.industryId) { toast('업종을 먼저 골라주세요'); return false; }
-    if (!$('#placeInput').value.trim()) { toast('동네·건물을 적어주세요 (예: 송파구 헬리오시티 34평)'); $('#placeInput').focus(); return false; }
+    if (!$('#placeInput').value.trim()) { toast('동네·건물을 적어주세요 (예: OO구 OO아파트 34평)'); $('#placeInput').focus(); return false; }
     return true;
   }
 
@@ -748,7 +748,7 @@
         layout: state.layout,
         place: r.summary[0].v,
         industryLabel: ind ? ind.label : '',
-        businessName: (currentBiz().name || '')
+        businessName: (currentBiz().name || '') + (state.sampleBizData ? ' (예시)' : '')
       });
       $('#compareImg').src = compareCanvas.toDataURL('image/jpeg', 0.94);
     } catch (e) {
@@ -815,7 +815,7 @@
     }
     state.industryId = 'grout';
     state.seed = Date.now() % 100000;
-    $('#placeInput').value = '송파구 헬리오시티 24평';
+    $('#placeInput').value = 'OO구 OO아파트 34평';
     $('#detailInput').value = '욕실 줄눈 곰팡이, 탄성코트 희망';
     $('#priceInput').value = '35~40만 원';
     $('#pricePrivate').checked = false;
@@ -825,7 +825,7 @@
 
     if (!currentBiz().name) {
       state.sampleBizData = {
-        name: '반짝줄눈',
+        name: 'OO클린',
         contact: '010-0000-0000',
         closing: '다음에도 깔끔하게 모시겠습니다.',
         style: state.tone
