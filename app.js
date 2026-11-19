@@ -807,7 +807,12 @@
     }
   }
 
-  async function runSample() {
+  async function runSample(forceBlog) {
+    if (forceBlog && state.channel !== 'blog') {
+      state.channel = 'blog';
+      write(STORE.channel, 'blog');
+      paintChannel();
+    }
     state.industryId = 'grout';
     state.seed = Date.now() % 100000;
     $('#placeInput').value = '송파구 헬리오시티 24평';
@@ -973,8 +978,8 @@
 
     // 생성
     $('#generateBtn').addEventListener('click', doGenerate);
-    $('#sampleBtn').addEventListener('click', runSample);
-    $('#demoTryBtn').addEventListener('click', runSample);
+    $('#sampleBtn').addEventListener('click', function () { runSample(false); });
+    $('#demoTryBtn').addEventListener('click', function () { runSample(true); });
 
     // 결과
     $('#backToWrite').addEventListener('click', function () { showView('write'); });
