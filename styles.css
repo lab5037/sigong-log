@@ -281,6 +281,11 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 
 .site-foot { max-width: 1080px; margin: 0 auto; padding: 44px 18px 60px; color: var(--muted); font-size: 13px; }
 .site-foot strong { color: var(--ink); }
+.admin-set { margin-top: 22px; border-top: 1px dashed var(--line); padding-top: 14px; }
+.admin-set summary { font-size: 12.5px; font-weight: 600; color: var(--muted); cursor: pointer; }
+.admin-set .field { margin-top: 10px; }
+.admin-set .btn-row { margin-top: 8px; }
+.admin-set .btn-row .btn { flex: 0 0 auto; }
 .foot-small { font-size: 12px; margin-top: 6px; line-height: 1.7; }
 
 /* ─────────── 작성 화면 ─────────── */

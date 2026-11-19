@@ -167,6 +167,17 @@
     });
   }
 
+  function paintWebhookState() {
+    const el = $('#webhookState');
+    const input = $('#webhookInput');
+    if (input) input.value = read(STORE.webhook, '');
+    if (!el) return;
+    const url = getWebhookUrl();
+    el.textContent = url
+      ? '연결됨 · ' + url.replace(/^https:\/\/([^/]+).*$/, '$1') + ' 로 신청 알림이 갑니다'
+      : '미설정 — 지금은 신청 내용을 복사해 보내는 방식으로 동작합니다';
+  }
+
   function fmtNow() {
     const d = new Date();
     const p = function (n) { return (n < 10 ? '0' : '') + n; };
@@ -716,6 +727,22 @@
 
     // 신청 폼
     $('#applyForm').addEventListener('submit', handleApply);
+    $('#saveWebhookBtn').addEventListener('click', function () {
+      const url = $('#webhookInput').value.trim();
+      if (url && !/^https:\/\//.test(url)) { toast('https:// 로 시작하는 URL을 넣어주세요'); return; }
+      write(STORE.webhook, url);
+      paintWebhookState();
+      toast(url ? '알림 웹훅을 저장했어요' : '웹훅을 비웠어요');
+    });
+    $('#testWebhookBtn').addEventListener('click', function () {
+      const url = getWebhookUrl();
+      if (!url) { toast('먼저 웹훅 URL을 저장해 주세요'); return; }
+      sendLead(url, {
+        name: '테스트', industry: '입주·이사청소', region: '테스트', contact: '010-0000-0000',
+        plan: '테스트', at: fmtNow()
+      }).then(function () { toast('테스트 알림을 보냈어요 (텔레그램 확인)'); })
+        .catch(function () { toast('전송이 막혔어요. URL을 다시 확인해 주세요'); });
+    });
     $('#copyApplyBtn').addEventListener('click', function () {
       copyText($('#applyPreview').textContent, '신청 내용을 복사했어요');
     });
@@ -869,8 +896,8 @@
     state.layout = read(STORE.layout, 'h');
     if (!state.industryId) state.industryId = '';
 
-    const webhook = getWebhookUrl();
-    if (webhook) console.info('[현장로그] 신청 알림 웹훅이 설정돼 있습니다.');
+    paintWebhookState();
+    if (getWebhookUrl()) console.info('[현장로그] 신청 알림 웹훅이 설정돼 있습니다.');
 
     // 테스트/자동화용 핸들 (공개되어도 개인정보 없음)
     window.__fieldlog = {

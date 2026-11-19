@@ -22,7 +22,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%230F1B2A'/%3E%3Cpath d='M24 62l26-24 26 24v18H24z' fill='%23F5620F'/%3E%3Crect x='44' y='66' width='12' height='14' fill='%230F1B2A'/%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
-<link rel="stylesheet" href="styles.css?v=20261119c" />
+<link rel="stylesheet" href="styles.css?v=20261119d" />
 </head>
 <body>
 <div class="app-shell">
@@ -237,6 +237,20 @@
       <p><strong>현장로그</strong> · 시공·청소 사장님을 위한 블로그 후기 도구</p>
       <p class="foot-small">원고는 사장님이 직접 확인하고 수정한 뒤 사용하시는 것을 권합니다. 수치와 소요 시간은 초안이므로 실제 현장에 맞게 고쳐 주세요.</p>
       <p class="foot-small">문의 : 무료 체험 신청서를 남겨주시면 안내드립니다.</p>
+
+      <details class="admin-set">
+        <summary>관리자 설정 · 신청 알림 연결</summary>
+        <p class="hint">구글 앱스 스크립트 웹앱 URL을 넣으면 무료 체험 신청이 텔레그램으로 알림 됩니다. 값은 이 브라우저에만 저장되고 사이트 코드에는 남지 않습니다.</p>
+        <div class="field">
+          <label for="webhookInput">웹훅 URL</label>
+          <input id="webhookInput" type="text" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off" />
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-ghost btn-sm" id="saveWebhookBtn" type="button">저장</button>
+          <button class="btn btn-ghost btn-sm" id="testWebhookBtn" type="button">테스트 알림 보내기</button>
+        </div>
+        <p class="hint" id="webhookState">미설정</p>
+      </details>
     </footer>
   </main>
 
@@ -472,8 +486,8 @@
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 </div>
 
-<script src="engine.js?v=20261119c"></script>
-<script src="canvas.js?v=20261119c"></script>
-<script src="app.js?v=20261119c"></script>
+<script src="engine.js?v=20261119d"></script>
+<script src="canvas.js?v=20261119d"></script>
+<script src="app.js?v=20261119d"></script>
 </body>
 </html>
