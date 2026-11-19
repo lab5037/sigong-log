@@ -17,6 +17,24 @@
     geminiModel: 'gemini-2.5-flash'
   };
 
+  /* ── Supabase (공개 프론트엔드용 값만 — sb_secret_·service_role 키는 절대 넣지 않음) ── */
+  const SUPABASE = {
+    url: 'https://khivycnezspevendmdtx.supabase.co',
+    key: 'sb_publishable_ANBO1DW598SenNqUkDd2wg_RWOLE3hn'
+  };
+  const QUOTA = { trial: 3, light: 15 };
+
+  const auth = {
+    sb: null,            // supabase-js 클라이언트
+    session: null,       // 로그인 세션
+    profile: null,       // profiles 행 (plan / used_count / 업체 정보)
+    schemaMissing: false,// schema.sql 미실행 상태
+    mode: 'login',
+    busy: false,
+    pending: false,      // 로그인 뒤 이어서 만들 원고가 있는지
+    ready: false
+  };
+
   const STORE = {
     biz: 'fieldlog.biz.v1',
     draft: 'fieldlog.draft.v1',
@@ -40,7 +58,9 @@
     aiTouched: false,
     editingBody: false,
     sampleBizData: null,
-    plan: ''
+    plan: '',
+    lastDemo: false,
+    genBusy: false
   };
 
   const $ = function (s, root) { return (root || document).querySelector(s); };
@@ -56,6 +76,421 @@
   function write(key, value) {
     try { localStorage.setItem(key, JSON.stringify(value)); return true; }
     catch (e) { return false; }
+  }
+
+  /* ── 계정 · 무료 체험 잠금 (Supabase) ───────────────────────────── */
+  function initSupabase() {
+    if (!window.supabase || !window.supabase.createClient) {
+      console.warn('[현장로그] supabase-js를 불러오지 못했습니다.');
+      paintAuth();
+      return;
+    }
+    try {
+      auth.sb = window.supabase.createClient(SUPABASE.url, SUPABASE.key, {
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+      });
+    } catch (e) {
+      console.warn('[현장로그] supabase 초기화 실패', e);
+      auth.sb = null;
+      paintAuth();
+      return;
+    }
+    // onAuthStateChange 콜백 안에서 다른 supabase 호출을 바로 기다리면 교착될 수 있어 setTimeout으로 뺀다.
+    auth.sb.auth.onAuthStateChange(function (event, session) {
+      auth.session = session || null;
+      if (!auth.session) auth.profile = null;
+      paintAuth();
+      setTimeout(function () { afterAuthChange(event, session); }, 0);
+    });
+    auth.sb.auth.getSession().then(function (r) {
+      auth.session = (r && r.data) ? r.data.session : null;
+      auth.ready = true;
+      if (auth.session) loadProfile();
+      paintAuth();
+    }).catch(function (e) {
+      console.warn('[현장로그] 세션 확인 실패', e);
+      auth.ready = true;
+      paintAuth();
+    });
+  }
+
+  function afterAuthChange(event, session) {
+    if (event === 'SIGNED_OUT' || !session) { auth.profile = null; paintAuth(); return; }
+    if (event === 'TOKEN_REFRESHED') { return; }
+    const wasPending = auth.pending;
+    loadProfile().then(function (p) {
+      if (event !== 'SIGNED_IN' && event !== 'INITIAL_SESSION') { paintSysState(); return; }
+      closeAuthModal();
+      if (wasPending) {
+        auth.pending = false;
+        toast('로그인했어요 · 원고를 만들게요');
+        doGenerate();
+      } else if (event === 'SIGNED_IN') {
+        toast('로그인했어요 · ' + planInfo(p).text);
+      }
+      paintSysState();
+    });
+  }
+
+  function planInfo(p) {
+    const plan = (p && p.plan) || 'trial';
+    const used = (p && typeof p.used_count === 'number') ? p.used_count : 0;
+    if (plan === 'light') {
+      const limit = (p && p.monthly_limit) || QUOTA.light;
+      const left = Math.max(0, limit - used);
+      return { plan: plan, text: '라이트 ' + left + '/' + limit + '건 남음', short: '라이트 ' + left + '/' + limit, out: left <= 0 };
+    }
+    if (plan === 'pro') return { plan: plan, text: '프로 무제한', short: '프로 무제한', out: false };
+    if (plan === 'agency') return { plan: plan, text: '카톡 1:1 대행형', short: '카톡 1:1', out: false };
+    const left = Math.max(0, QUOTA.trial - used);
+    return { plan: 'trial', text: '무료 체험 ' + left + '/' + QUOTA.trial + '건 남음', short: '무료 ' + left + '/' + QUOTA.trial, out: left <= 0 };
+  }
+
+  function isSchemaMissing(err) {
+    if (!err) return false;
+    const code = err.code || '';
+    const msg = String(err.message || '');
+    return code === 'PGRST202' || code === 'PGRST205' || /Could not find the (table|function)|schema cache/i.test(msg);
+  }
+
+  async function loadProfile() {
+    if (!auth.sb || !auth.session) { auth.profile = null; paintAuth(); return null; }
+    let r;
+    try {
+      r = await auth.sb.from('profiles')
+        .select('id,plan,monthly_limit,used_count,shop_name,shop_contact,tone,closing')
+        .eq('id', auth.session.user.id)
+        .maybeSingle();
+    } catch (e) {
+      console.warn('[현장로그] 프로필 조회 실패', e);
+      return null;
+    }
+    if (r.error) {
+      if (isSchemaMissing(r.error)) {
+        auth.schemaMissing = true;
+        console.warn('[현장로그] profiles 테이블 없음 — supabase/schema.sql을 SQL Editor에서 실행하세요.', r.error);
+      } else {
+        console.warn('[현장로그] 프로필 조회 오류', r.error);
+      }
+      auth.profile = null;
+      paintAuth();
+      return null;
+    }
+    auth.schemaMissing = false;
+    auth.profile = r.data || null;
+    paintAuth();
+    applyProfileBiz();
+    return auth.profile;
+  }
+
+  // 계정에 저장된 업체 정보를 불러오고, 서버에 아무것도 없으면 이 기기 값을 올린다.
+  function applyProfileBiz() {
+    const p = auth.profile;
+    if (!p) return;
+    const hasServer = !!(p.shop_name || p.shop_contact || p.closing);
+    if (hasServer) {
+      if (p.shop_name) $('#bizName').value = p.shop_name;
+      if (p.shop_contact) $('#bizContact').value = p.shop_contact;
+      if (p.closing) $('#bizClosing').value = p.closing;
+      if (p.tone && E.STYLE_LABEL[p.tone]) { state.tone = p.tone; paintTone(); }
+      updateBizSummary();
+      write(STORE.biz, currentBiz());
+      if (p.shop_name) {
+        $('#bizBody').hidden = true;
+        $('#bizToggle').setAttribute('aria-expanded', 'false');
+      }
+    } else {
+      const local = read(STORE.biz, null);
+      if (local && local.name) syncBizToServer();
+    }
+  }
+
+  let profileTimer = null;
+  function syncBizToServer() {
+    if (!auth.sb || !auth.session || auth.schemaMissing) return;
+    clearTimeout(profileTimer);
+    profileTimer = setTimeout(function () {
+      if (!auth.sb || !auth.session) return;
+      const biz = currentBiz();
+      auth.sb.from('profiles').update({
+        shop_name: biz.name,
+        shop_contact: biz.contact,
+        tone: biz.style,
+        closing: biz.closing
+      }).eq('id', auth.session.user.id).then(function (r) {
+        if (!r.error) return;
+        if (isSchemaMissing(r.error)) { auth.schemaMissing = true; paintAuth(); return; }
+        console.warn('[현장로그] 업체 정보 동기화 실패', r.error);
+      }).catch(function (e) { console.warn('[현장로그] 업체 정보 동기화 실패', e); });
+    }, 700);
+  }
+
+  function paintAuth() {
+    const signed = !!auth.session;
+    const info = planInfo(auth.profile);
+    const chip = $('#authChip');
+    if (chip) {
+      chip.classList.toggle('is-on', signed && !info.out);
+      chip.classList.toggle('is-out', signed && info.out);
+      const t = $('#authChipText');
+      if (t) t.textContent = signed ? (auth.schemaMissing ? '로그인됨' : info.short) : '로그인';
+      chip.setAttribute('aria-label', signed ? ('내 계정 · ' + (auth.session.user.email || '')) : '로그인 또는 회원가입');
+    }
+    const bar = $('#accountBar');
+    if (bar) {
+      bar.classList.toggle('is-on', signed && !info.out);
+      bar.classList.toggle('is-out', signed && info.out);
+      $('#abName').textContent = signed ? (auth.session.user.email || '내 계정') : '로그인이 필요해요';
+      $('#abSub').textContent = signed
+        ? (auth.schemaMissing
+          ? '체험 횟수 잠금이 아직 서버에 없어요 — 관리자 확인이 필요합니다'
+          : info.text + ' · 업체 정보는 계정에 저장됩니다')
+        : '무료 3건 체험을 위해 10초만 써 주세요';
+      $('#abBtn').hidden = signed;
+      $('#abActions').hidden = !signed;
+    }
+    if (signed && auth.profile && info.out && !auth.schemaMissing) {
+      // 배지만 보여 주고 모달은 사용자가 [후기 만들기]를 누를 때 띄운다.
+      if (bar) bar.classList.add('is-out');
+    }
+    paintSysState();
+  }
+
+  function paintSysState() {
+    const el = $('#sysState');
+    if (!el) return;
+    if (!auth.sb) { el.textContent = '계정 모듈을 불러오지 못했습니다 — 새로고침해 주세요.'; return; }
+    if (auth.schemaMissing) { el.textContent = '체험 횟수 서버 잠금: 미설치 — supabase/schema.sql을 SQL Editor에서 실행해 주세요.'; return; }
+    el.textContent = auth.session
+      ? '계정 서버 연결됨 · ' + (auth.session.user.email || '') + ' · ' + planInfo(auth.profile).text
+      : '계정 서버 연결됨 · 로그인 전';
+  }
+
+  function paintAiRow() {
+    const row = $('#aiRow');
+    if (row) row.hidden = !getGeminiKey();
+  }
+
+  function openAuthModal(reason) {
+    const el = $('#authModal');
+    if (!el) return;
+    setAuthMode(auth.mode || 'login');
+    if (reason === 'gate') {
+      $('#authTitle').textContent = '10초 회원가입하고 시작하기';
+      $('#authSub').textContent = '무료 3건 체험을 위해 10초 회원가입/로그인해 주세요. 결제는 없습니다.';
+    }
+    el.hidden = false;
+    setTimeout(function () { const e = $('#authEmail'); if (e) e.focus(); }, 40);
+  }
+
+  function closeAuthModal() {
+    const el = $('#authModal');
+    auth.pending = false;
+    if (!el || el.hidden) return;
+    el.hidden = true;
+    authMsg('');
+  }
+
+  function setAuthMode(mode) {
+    auth.mode = mode === 'signup' ? 'signup' : 'login';
+    $$('.modal-tab').forEach(function (t) {
+      const on = t.getAttribute('data-auth-tab') === auth.mode;
+      t.classList.toggle('is-on', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    $('#authSubmit').textContent = auth.mode === 'signup' ? '회원가입하고 시작하기' : '로그인';
+    $('#authPw').setAttribute('autocomplete', auth.mode === 'signup' ? 'new-password' : 'current-password');
+    $('#authNote').textContent = auth.mode === 'signup'
+      ? '가입 확인 메일이 갑니다. 메일의 링크를 누른 뒤 로그인해 주세요. (스팸함도 확인해 주세요)'
+      : '체험 횟수는 서버에 저장돼 기기를 바꿔도 유지됩니다. 비밀번호는 저희가 볼 수 없습니다.';
+    authMsg('');
+  }
+
+  function authMsg(text, ok) {
+    const el = $('#authMsg');
+    if (!el) return;
+    if (!text) { el.hidden = true; el.textContent = ''; return; }
+    el.hidden = false;
+    el.textContent = text;
+    el.classList.toggle('is-ok', !!ok);
+  }
+
+  function setAuthBusy(on) {
+    auth.busy = on;
+    const btn = $('#authSubmit');
+    if (!btn) return;
+    btn.disabled = on;
+    btn.textContent = on
+      ? (auth.mode === 'signup' ? '가입 중…' : '로그인 중…')
+      : (auth.mode === 'signup' ? '회원가입하고 시작하기' : '로그인');
+  }
+
+  function mapAuthError(err) {
+    const m = String((err && err.message) || '');
+    if (/Invalid login credentials/i.test(m)) return '이메일 또는 비밀번호가 맞지 않아요.';
+    if (/Email not confirmed/i.test(m)) return '메일 인증이 아직 안 됐어요. 받은 메일의 확인 링크를 먼저 눌러 주세요.';
+    if (/User already registered|already been registered/i.test(m)) return '이미 가입된 이메일이에요. [로그인] 탭에서 로그인해 주세요.';
+    if (/Password should be at least/i.test(m)) return '비밀번호는 6자 이상으로 넣어 주세요.';
+    if (/rate limit|too many|over_email_send_rate_limit/i.test(m)) return '시도가 너무 잦아요. 잠시 후 다시 시도해 주세요.';
+    if (/fetch|network|Failed to fetch/i.test(m)) return '연결이 불안정해요. 잠시 후 다시 시도해 주세요.';
+    return '로그인하지 못했어요: ' + (m.slice(0, 140) || '알 수 없는 오류');
+  }
+
+  async function handleAuthSubmit(ev) {
+    ev.preventDefault();
+    if (auth.busy) return;
+    if (!auth.sb) { authMsg('로그인 서버에 연결하지 못했어요. 새로고침 후 다시 시도해 주세요.'); return; }
+    const email = $('#authEmail').value.trim();
+    const pw = $('#authPw').value;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { authMsg('이메일 주소를 확인해 주세요.'); return; }
+    if (pw.length < 6) { authMsg('비밀번호는 6자 이상으로 넣어 주세요.'); return; }
+    setAuthBusy(true);
+    try {
+      if (auth.mode === 'signup') {
+        const r = await auth.sb.auth.signUp({
+          email: email,
+          password: pw,
+          options: { emailRedirectTo: location.origin + location.pathname }
+        });
+        if (r.error) { authMsg(mapAuthError(r.error)); return; }
+        if (r.data && r.data.session) { authMsg('가입 완료 — 바로 시작할 수 있어요', true); return; }
+        authMsg('가입 확인 메일을 보냈어요. 메일의 링크를 누른 뒤 [로그인] 탭에서 로그인해 주세요. (스팸함도 확인해 주세요)', true);
+        setAuthMode('login');
+      } else {
+        const r = await auth.sb.auth.signInWithPassword({ email: email, password: pw });
+        if (r.error) { authMsg(mapAuthError(r.error)); return; }
+        authMsg('로그인 중…', true);
+      }
+    } catch (e) {
+      authMsg(mapAuthError(e));
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  function signOut() {
+    if (!auth.sb) return;
+    auth.sb.auth.signOut().then(function () {
+      toast('로그아웃했어요');
+    }).catch(function () { toast('로그아웃하지 못했어요'); });
+  }
+
+  function openLimitModal(data) {
+    const el = $('#limitModal');
+    if (!el) return;
+    if (data && data.reason === 'monthly_limit') {
+      $('#limitEyebrow').textContent = '라이트 이용 한도';
+      $('#limitTitle').textContent = '이번 달 15건을 모두 쓰셨어요';
+      $('#limitSub').textContent = '다음 달 1일에 다시 15건이 채워집니다. 지금 더 쓰시려면 프로(무제한)로 올려 주세요.';
+    } else {
+      const used = (data && data.used) || QUOTA.trial;
+      $('#limitEyebrow').textContent = '무료 체험 종료';
+      $('#limitTitle').textContent = '무료 체험 ' + used + '건을 모두 쓰셨어요';
+      $('#limitSub').textContent = '계속 쓰시려면 아래에서 플랜을 신청해 주세요. 신청서를 남겨주시면 바로 안내드립니다.';
+    }
+    el.hidden = false;
+  }
+
+  function closeLimitModal() {
+    const el = $('#limitModal');
+    if (el) el.hidden = true;
+  }
+
+  function goToPlan(plan) {
+    closeLimitModal();
+    state.plan = plan || '';
+    paintPlanNote();
+    showView('land');
+    setTimeout(function () {
+      const t = $('#apply');
+      if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 120);
+    if (plan) toast(plan + ' 신청서로 이동했어요');
+  }
+
+  function applyUsage(data) {
+    const prev = auth.profile || {};
+    auth.profile = {
+      plan: data.plan || prev.plan || 'trial',
+      used_count: (typeof data.used === 'number') ? data.used : prev.used_count,
+      monthly_limit: (typeof data.limit === 'number' && data.limit > 0) ? data.limit : prev.monthly_limit,
+      shop_name: prev.shop_name, shop_contact: prev.shop_contact, tone: prev.tone, closing: prev.closing
+    };
+    paintAuth();
+    const info = planInfo(auth.profile);
+    if (info.plan === 'trial' || info.plan === 'light') {
+      toast(info.out ? '체험 횟수를 다 쓰셨어요' : info.text);
+    }
+  }
+
+  // 서버에서 횟수를 차감(원자적)한 뒤에만 원고를 만든다.
+  async function ensureQuota() {
+    if (!auth.sb) {
+      toast('로그인 모듈을 불러오지 못했어요 — 이번 원고는 횟수 집계 없이 만들어 드립니다');
+      return { allowed: true, local: true };
+    }
+    if (!auth.session) {
+      auth.pending = true;
+      openAuthModal('gate');
+      return { allowed: false };
+    }
+    if (auth.schemaMissing) {
+      toast('체험 횟수 잠금이 서버에 아직 없어 이번 원고는 집계 없이 만들어 드려요');
+      return { allowed: true, local: true };
+    }
+    const input = collectInput();
+    const ind = E.getIndustry(input.industryId);
+    let res;
+    try {
+      res = await auth.sb.rpc('consume_generation', {
+        p_industry: ind ? ind.label : '',
+        p_channel: state.channel,
+        p_region: input.place || ''
+      });
+    } catch (e) {
+      res = { error: e };
+    }
+    if (res.error) {
+      if (isSchemaMissing(res.error)) {
+        auth.schemaMissing = true;
+        paintAuth();
+        toast('체험 횟수 잠금이 서버에 아직 없어 이번 원고는 집계 없이 만들어 드려요');
+        return { allowed: true, local: true };
+      }
+      const msg = String(res.error.message || '');
+      if (res.error.status === 401 || /jwt|token is expired/i.test(msg)) {
+        auth.pending = true;
+        openAuthModal('gate');
+        authMsg('로그인이 만료됐어요. 다시 로그인해 주세요.');
+        return { allowed: false };
+      }
+      console.warn('[현장로그] consume_generation 실패', res.error);
+      toast('체험 횟수를 확인하지 못했어요. 잠시 후 다시 눌러 주세요');
+      return { allowed: false };
+    }
+    const data = res.data || {};
+    if (data.allowed) { applyUsage(data); return { allowed: true }; }
+    if (data.reason === 'not_authenticated') {
+      auth.pending = true;
+      openAuthModal('gate');
+      return { allowed: false };
+    }
+    openLimitModal(data);
+    return { allowed: false, reason: data.reason };
+  }
+
+  function setGenBusy(on) {
+    const btn = $('#generateBtn');
+    if (btn) {
+      btn.disabled = on;
+      btn.textContent = on ? '확인 중…' : '후기 만들기';
+    }
+    $$('#regenBtn, #newJobBtn').forEach(function (b) { b.disabled = on; });
+  }
+
+  // 예시 현장(가상 데이터 + assets/demo-*.jpg)은 누구나 자유롭게 미리보기
+  function isDemoScene() {
+    return !!state.sampleBizData && $('#placeInput').value.trim() === 'OO구 OO아파트 34평';
   }
 
   /* ── 토스트 ─────────────────────────────────────────────────────── */
@@ -320,6 +755,7 @@
     saveTimer = setTimeout(function () {
       const biz = currentBiz();
       write(STORE.biz, biz);
+      syncBizToServer();
       updateBizSummary();
       const s = $('#saveState');
       s.textContent = '저장했어요 ✓';
@@ -374,6 +810,7 @@
   }
 
   function saveDraftSoon() {
+    state.lastDemo = false;
     write(STORE.draft, {
       industryId: state.industryId,
       place: $('#placeInput').value,
@@ -468,6 +905,7 @@
 
   function handleFile(slot, file) {
     if (!file) return;
+    state.lastDemo = false;
     if (!/^image\//.test(file.type)) { toast('사진 파일만 올릴 수 있어요'); return; }
     readFileAsDataURL(file).then(function (raw) {
       return shrink(raw, 1400, 0.9);
@@ -577,11 +1015,7 @@
   async function runAI(manual) {
     if (state.aiBusy || !state.result) return;
     if (!getGeminiKey()) {
-      toast('고급 설정에 Gemini 키를 넣으면 사진까지 읽고 다듬어 드려요');
-      $('#bizBody').hidden = false;
-      $('#bizToggle').setAttribute('aria-expanded', 'true');
-      $('.adv').open = true;
-      $('#geminiKey').focus();
+      toast('AI 다듬기는 관리자 설정에서 Gemini 키를 넣은 기기에서만 동작해요');
       return;
     }
     if (!hasPhoto()) {
@@ -647,10 +1081,26 @@
     return true;
   }
 
-  function doGenerate() {
+  async function doGenerate(opts) {
+    opts = opts || {};
     if (!validate()) return;
+    if (state.genBusy) return;
+    const demo = opts.sample === true || isDemoScene();
+    if (!demo) {
+      state.genBusy = true;
+      setGenBusy(true);
+      let q;
+      try {
+        q = await ensureQuota();
+      } finally {
+        state.genBusy = false;
+        setGenBusy(false);
+      }
+      if (!q || !q.allowed) return;
+    }
     const input = collectInput();
     state.result = E.generate(input);
+    state.lastDemo = demo;
     renderResult();
     showView('result');
     drawCompare();
@@ -837,12 +1287,12 @@
     }
 
     showView('write');
-    toast('예시 현장으로 채웠어요');
+    toast('예시 현장으로 채웠어요 — 가상 예시라 횟수가 차감되지 않습니다');
     const samples = await samplePhotos();
     setPhoto('before', samples.before);
     setPhoto('during', samples.during);
     setPhoto('after', samples.after);
-    setTimeout(function () { doGenerate(); }, 60);
+    setTimeout(function () { doGenerate({ sample: true }); }, 60);
   }
 
   /* ── 이벤트 연결 ────────────────────────────────────────────────── */
@@ -923,7 +1373,42 @@
     });
     $('#geminiKey').addEventListener('change', function () {
       write(STORE.gemini, $('#geminiKey').value.trim());
+      paintAiRow();
       toast($('#geminiKey').value.trim() ? '키를 저장했어요 (이 브라우저에만)' : '키를 지웠어요');
+    });
+
+    // 계정 · 로그인 모달 · 체험 한도
+    $('#authChip').addEventListener('click', function () {
+      if (!auth.session) { openAuthModal('chip'); return; }
+      showView('write');
+      setTimeout(function () {
+        const bar = $('#accountBar');
+        if (bar) bar.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 120);
+    });
+    $('#abBtn').addEventListener('click', function () { openAuthModal('bar'); });
+    $('#abLogoutBtn').addEventListener('click', function () { signOut(); });
+    $('#abPlanBtn').addEventListener('click', function () {
+      showView('land');
+      setTimeout(function () {
+        const t = $('#pricing');
+        if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 120);
+    });
+    $$('.modal-tab').forEach(function (t) {
+      t.addEventListener('click', function () { setAuthMode(t.getAttribute('data-auth-tab')); });
+    });
+    $('#authForm').addEventListener('submit', handleAuthSubmit);
+    $$('[data-close-auth]').forEach(function (b) { b.addEventListener('click', closeAuthModal); });
+    $$('[data-close-limit]').forEach(function (b) { b.addEventListener('click', closeLimitModal); });
+    $('#limitLater').addEventListener('click', closeLimitModal);
+    $$('[data-limit-plan]').forEach(function (b) {
+      b.addEventListener('click', function () { goToPlan(b.getAttribute('data-limit-plan')); });
+    });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Escape') return;
+      if (!$('#authModal').hidden) closeAuthModal();
+      else if (!$('#limitModal').hidden) closeLimitModal();
     });
 
     // 업종
@@ -1030,8 +1515,7 @@
     $('#aiBtn').addEventListener('click', function () { runAI(true); });
     $('#regenBtn').addEventListener('click', function () {
       state.seed = (state.seed + 1 + Math.floor(Math.random() * 97)) >>> 0;
-      doGenerate();
-      toast('표현을 바꿔 다시 만들었어요');
+      doGenerate({ sample: state.lastDemo });
     });
     $('#newJobBtn').addEventListener('click', function () {
       clearPhotos();
@@ -1061,6 +1545,10 @@
     state.layout = read(STORE.layout, 'h');
     if (!state.industryId) state.industryId = '';
 
+    paintAuth();
+    paintAiRow();
+    initSupabase();
+
     paintWebhookState();
     if (getWebhookUrl()) console.info('[현장로그] 신청 알림 웹훅이 설정돼 있습니다.');
 
@@ -1078,6 +1566,13 @@
       setChannel: setChannel,
       samplePhotos: samplePhotos,
       getWebhookUrl: getWebhookUrl,
+      auth: auth,
+      ensureQuota: ensureQuota,
+      loadProfile: loadProfile,
+      planInfo: function () { return planInfo(auth.profile); },
+      openAuthModal: openAuthModal,
+      openLimitModal: openLimitModal,
+      paintAuth: paintAuth,
       composeCompare: function () { return drawCompare(); }
     };
   }
