@@ -12,7 +12,8 @@
   /* ── 설정 (공개 저장소용 플레이스홀더) ───────────────────────────── */
   const CONFIG = {
     // 구글 앱스 스크립트 웹앱 URL (gas/sigong_notify_template.gs 참고)
-    webhookUrl: window.FIELDLOG_WEBHOOK || 'YOUR_GAS_WEBHOOK_URL',
+    // 2026-11-19 배포: 현장로그-알림봇(GAS 웹앱) → 텔레그램 @pickleryeol_bot
+    webhookUrl: window.FIELDLOG_WEBHOOK || 'https://script.google.com/macros/s/AKfycbzbgaXQ4HxYCBJnbiROPV2V1GV53oVHZ57QkqkqM74dNkgoxEk-ZEWCnXqU3AyEx8s/exec',
     geminiModel: 'gemini-2.5-flash'
   };
 

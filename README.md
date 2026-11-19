@@ -42,8 +42,8 @@
 
 ### 2) 신청 알림 웹훅 (텔레그램)
 
-- `app.js` 상단 `CONFIG.webhookUrl` 값은 `'YOUR_GAS_WEBHOOK_URL'` 플레이스홀더입니다.
-  **실제 URL·토큰·chat_id·개인 전화번호는 저장소에 넣지 마세요.**
+- `app.js` 상단 `CONFIG.webhookUrl` 값은 현장로그 알림봇 GAS 웹앱의 배포 URL입니다(2026-11-19 연결).
+  **봇 토큰·chat_id·개인 전화번호는 저장소에 넣지 마세요** — 토큰·chat_id는 Apps Script 스크립트 속성에만 둡니다.
 - 연결 방법은 `gas/sigong_notify_template.gs` 상단 주석 참고:
   1. Apps Script에 템플릿 붙여넣기
   2. 스크립트 속성에 `TELEGRAM_TOKEN`, `TELEGRAM_CHAT_ID` 저장
