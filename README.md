@@ -1,0 +1,64 @@
+# 현장로그 (FieldLog)
+
+시공·청소 사장님을 위한 **네이버 블로그 후기 30초 완성** 모바일 웹앱.
+현장 사진 3장이면 지역 키워드 제목·공정별 본문·비포/애프터 카드가 나옵니다.
+자동 입력·자동 발행은 하지 않고, **원고와 이미지만** 만들어 드립니다.
+
+- 라이브: https://ulyeol-lab.github.io/sigong-log/
+- 정적 사이트 (서버·DB 없음). 빌드 도구 없이 `index.html` 하나로 동작합니다.
+
+## 구성
+
+| 파일 | 역할 |
+| --- | --- |
+| `index.html` | 랜딩(소개·비용 비교·업종·요금·신청) + 작성 화면 + 결과 화면 |
+| `styles.css` | 모바일 퍼스트(max 480px) 스타일 |
+| `engine.js` | 원고 생성 엔진 (6개 업종 × 3말투, 제목 3안·요약표·본문·해시태그·지역 키워드) |
+| `canvas.js` | 비포/애프터 1080×1080 카드 합성, 예시 사진 생성 |
+| `app.js` | 화면 로직, 사진 리사이즈, Gemini 사진 인식, 신청 폼·웹훅 |
+| `gas/sigong_notify_template.gs` | 신청 알림(텔레그램) 구글 앱스 스크립트 템플릿 |
+| `tests/engine.test.mjs` | 엔진 테스트 (`node tests/engine.test.mjs`) |
+
+## 지원 업종 (티어 1)
+
+1. 입주·이사청소
+2. 시스템에어컨 청소 — 보양 → 완전분해(필터·그릴·드레인판·송풍팬) → 열교환기 고압세척·오염수 배출 → 살균·건조 → 조립·시운전 (대수·모델명 반영)
+3. 줄눈·탄성코트
+4. 누수·방수 — 탐지 → 보강 → 타일 복구 → 담수 테스트
+5. 욕실·실리콘 시공
+6. 방충망·단열필름·중문
+
+## 선택 기능
+
+### 1) Gemini 사진 인식 (키를 넣은 경우에만)
+
+- 업체 정보 → 고급 설정에 Gemini API 키를 넣으면, 업로드한 시공 전·중·후 사진을
+  브라우저에서 1024px JPEG로 줄여 `gemini-2.5-flash`에 보내고
+  사진에서 보이는 상태를 본문과 사진 설명(`→ ...`)에 반영합니다.
+- 키는 `localStorage`에만 저장되며 서버로 가지 않습니다.
+- 키가 없거나 호출이 실패하면 **기본 원고 그대로** 남습니다(폴백).
+
+### 2) 신청 알림 웹훅 (텔레그램)
+
+- `app.js` 상단 `CONFIG.webhookUrl` 값은 `'YOUR_GAS_WEBHOOK_URL'` 플레이스홀더입니다.
+  **실제 URL·토큰·chat_id·개인 전화번호는 저장소에 넣지 마세요.**
+- 연결 방법은 `gas/sigong_notify_template.gs` 상단 주석 참고:
+  1. Apps Script에 템플릿 붙여넣기
+  2. 스크립트 속성에 `TELEGRAM_TOKEN`, `TELEGRAM_CHAT_ID` 저장
+  3. 웹 앱으로 배포(액세스: 모든 사용자)
+  4. 배포 URL을 `CONFIG.webhookUrl`에 넣거나, 그 브라우저에서만
+     `localStorage.setItem('fieldlog.webhook.v1', JSON.stringify('<배포 URL>'))`
+- 웹훅이 없으면 신청서는 **복사용 문의 내용**만 만들어 화면에 보여줍니다.
+
+## 테스트
+
+```bash
+node --check engine.js && node --check canvas.js && node --check app.js
+node tests/engine.test.mjs
+```
+
+## 개인정보
+
+- 사진과 원고는 브라우저 안에서만 처리됩니다(서버 전송 없음, Gemini 사용 시 제외).
+- 업체 정보·말투·Gemini 키는 브라우저 `localStorage`에만 저장됩니다.
+- 공개 저장소에는 어떤 키·토큰·전화번호도 하드코딩하지 않습니다.
