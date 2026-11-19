@@ -608,7 +608,7 @@
     return '[📸 사진 위치 : ' + processName + ' · ' + photoLabel + ']';
   }
 
-  function buildBody(ctx) {
+  function buildBody(ctx, tips) {
     const st = ctx.style;
     const I = ctx.industry;
     const lines = [];
@@ -665,7 +665,8 @@
       }
     });
 
-    const tipBlock = ['■ 셀프로 확인할 포인트'].concat(I.tips.map(function (tip) {
+    const tipList = tips || I.tips;
+    const tipBlock = ['■ 셀프로 확인할 포인트'].concat(tipList.map(function (tip) {
       return '· ' + tip[st];
     })).join('\n');
     lines.push(tipBlock);
@@ -775,15 +776,19 @@
   function clip(text, max) {
     const t = String(text || '').replace(/\s+/g, ' ').trim();
     if (t.length <= max) return t;
-    return t.slice(0, max - 1).replace(/[ ,.·]$/, '') + '…';
+    const cut = t.slice(0, max - 1);
+    const sp = cut.lastIndexOf(' ');
+    const base = sp > max * 0.55 ? cut.slice(0, sp) : cut;
+    return base.replace(/[ ,.·]$/, '') + '…';
   }
 
   function areaText(ctx) {
     const p = ctx.place;
     const bits = [];
+    if (p.region) bits.push(p.region);
     if (p.building) bits.push(p.building);
     if (p.pyeong) bits.push(p.pyeong + '평');
-    return bits.join(' ') || p.region || '현장';
+    return bits.join(' ') || '현장';
   }
 
   function pricePhrase(ctx) {
@@ -796,8 +801,8 @@
     return contact ? ' (' + contact + ')' : '';
   }
 
-  function issueLine(ctx, style) {
-    const d = ctx.detail;
+  function issueLine(ctx, style, skipDetail) {
+    const d = skipDetail ? '' : ctx.detail;
     if (d) {
       return {
         haeyo: '말씀하신 \'' + clip(d, 40) + '\' 부분부터 먼저 봤어요.',
@@ -810,6 +815,17 @@
       hapsio: '\'' + ctx.issueShort + '\' 부위부터 점검했습니다.',
       ilji: '중점 : ' + ctx.issueShort + '.'
     }[style];
+  }
+
+  /* 블로그 본문 — 1,200자를 넘으면 확인 포인트를 뒤에서부터 줄여 맞춘다 */
+  function blogBody(ctx) {
+    let tips = ctx.industry.tips.slice();
+    let body = sanitize(buildBody(ctx, tips));
+    while (body.length > 1200 && tips.length > 1) {
+      tips = tips.slice(0, tips.length - 1);
+      body = sanitize(buildBody(ctx, tips));
+    }
+    return body;
   }
 
   /* 당근 — 동네 이웃에게 말 거는 소식 (요약 4줄 + 짧은 본문 + 채팅 유도) */
@@ -827,13 +843,14 @@
 
     return [
       hello,
-      '· 현장 : ' + area + ' · ' + I.label,
+      '· 현장 : ' + area,
       '· 범위 : ' + I.scope,
       '· 소요 : ' + ctx.time,
       '· 견적 : ' + pricePhrase(ctx),
       '',
       issueLine(ctx, 'haeyo'),
-      '제일 오래 붙잡은 건 ' + proc.name + '이었어요. ' + clip(firstSentence(proc.lines.haeyo), 58),
+      '가장 오래 붙잡은 공정은 ' + proc.name + ' 작업이었어요. ' + clip(firstSentence(proc.lines.haeyo), 62),
+      '작업 전후 사진도 남겨 두었으니 나중에 비교해 보셔도 됩니다.',
       '',
       region + ' 근처는 일정만 맞으면 당일 방문도 가능하고, 작업 후에 문제가 생기면 A/S로 다시 봐드립니다.',
       '사진 몇 장 보내주시면 견적이랑 일정 바로 잡아드릴게요. 편하게 당근 채팅 주세요' + contactTail(ctx) + '.'
@@ -842,12 +859,7 @@
 
   function danggeunTitle(ctx) {
     const I = ctx.industry;
-    const p = ctx.place;
-    const bits = [];
-    if (p.region) bits.push(p.region);
-    const area = areaText(ctx);
-    if (area && area !== p.region) bits.push(area);
-    return (bits.join(' ') + ' ' + I.keyword + ' 다녀왔어요').replace(/\s+/g, ' ').trim().slice(0, 48);
+    return (areaText(ctx) + ' ' + I.keyword + ' 다녀왔어요').replace(/\s+/g, ' ').trim().slice(0, 48);
   }
 
   /* 인스타그램 — 후킹 첫 줄 + 짧은 줄바꿈 + 바뀐 포인트 3가지 + 저장·DM 유도 */
@@ -891,8 +903,8 @@
     const out = [
       '오늘 ' + area + ' ' + I.keyword + ' 하고 왔어요. ' + ctx.time + ' 걸렸습니다.',
       '',
-      issueLine(ctx, 'haeyo'),
-      clip(firstSentence(proc.lines.haeyo), 56),
+      issueLine(ctx, 'haeyo', true),
+      '가장 오래 붙잡은 건 ' + proc.name + ' 작업이었어요. ' + clip(firstSentence(proc.lines.haeyo), 50),
       ''
     ];
     if (tip) out.push('꿀팁 하나. ' + clip(tip, 56), '');
@@ -972,7 +984,7 @@
       hashtags = buildHashtags(ctx).slice(0, 1);
       seo = [];
     } else {
-      body = sanitize(buildBody(ctx));
+      body = blogBody(ctx);
       titles = buildTitles(ctx);
       hashtags = buildHashtags(ctx);
       seo = buildSeoKeywords(ctx);
