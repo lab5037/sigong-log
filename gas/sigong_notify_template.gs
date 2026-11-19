@@ -68,7 +68,7 @@ function doGet() {
 /** 봇과 대화를 시작한 뒤 한 번 실행하면 chat_id 후보를 로그에 보여줍니다. */
 function getChatId() {
   var token = PROP.getProperty('TELEGRAM_TOKEN');
-  if (!token) throw new Error('스크ريبت 속성에 TELEGRAM_TOKEN 을 먼저 넣어주세요.');
+  if (!token) throw new Error('스크립트 속성에 TELEGRAM_TOKEN 을 먼저 넣어주세요.');
   var res = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/getUpdates', { muteHttpExceptions: true });
   Logger.log(res.getContentText());
   return res.getContentText();
