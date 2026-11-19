@@ -774,6 +774,16 @@
     return (m ? m[0] : t).trim();
   }
 
+  // 공정 이름이 첫 문장에 그대로 나오면(예: "기존 줄눈은 …") 뒷문장을 쓴다
+  function processNote(proc) {
+    const line = String(proc.lines.haeyo || '').replace(/\s+/g, ' ').trim();
+    const first = firstSentence(line);
+    const head = String(proc.name || '').split(/[·\s(]/)[0];
+    const rest = line.slice(first.length).trim();
+    if (rest && head && first.indexOf(head) >= 0) return rest;
+    return first;
+  }
+
   function clip(text, max) {
     const t = String(text || '').replace(/\s+/g, ' ').trim();
     if (t.length <= max) return t;
@@ -850,7 +860,7 @@
       '· 견적 : ' + pricePhrase(ctx),
       '',
       issueLine(ctx, 'haeyo'),
-      '가장 오래 붙잡은 공정은 ' + proc.name + ' 작업이었어요. ' + clip(firstSentence(proc.lines.haeyo), 62),
+      '가장 오래 붙잡은 공정은 ' + proc.name + ' 작업이었어요. ' + clip(processNote(proc), 62),
       '작업 전후 사진도 남겨 두었으니 나중에 비교해 보셔도 됩니다.',
       '',
       region + ' 근처는 일정만 맞으면 당일 방문도 가능하고, 작업 후에 문제가 생기면 A/S로 다시 봐드립니다.',
@@ -872,12 +882,12 @@
     const area = areaText(ctx);
     const hook = pick([
       ctx.issueShort + ', 사진으로 먼저 보세요.',
-      area + ' ' + I.keyword + ', ' + ctx.timeShort + ' 작업했습니다.',
+      ctx.issueShort + ' 이 정도면 그냥 두기 아깝습니다.',
       '이 ' + ctx.issueShort + ', 그냥 두면 더 번집니다.'
     ], ctx.rnd);
 
     const points = I.processes.slice(0, 3).map(function (p, i) {
-      return (i + 1) + '. ' + p.name + ' — ' + clip(firstSentence(p.lines.haeyo), 40);
+      return (i + 1) + '. ' + p.name + ' — ' + clip(processNote(p), 40);
     });
 
     return [
@@ -904,10 +914,10 @@
     const tip = I.tips[0] && I.tips[0].haeyo ? I.tips[0].haeyo : '';
 
     const out = [
-      '오늘 ' + area + ' ' + I.keyword + ' 하고 왔어요. ' + ctx.time + ' 걸렸습니다.',
+      '오늘 ' + area + ' ' + I.keyword + ' 하고 왔어요. ' + ctx.timeShort + ' 걸렸습니다.',
       '',
       issueLine(ctx, 'haeyo', true),
-      '가장 오래 붙잡은 건 ' + proc.name + ' 작업이었어요. ' + clip(firstSentence(proc.lines.haeyo), 50),
+      '가장 오래 붙잡은 건 ' + proc.name + ' 작업이었어요. ' + clip(processNote(proc), 50),
       ''
     ];
     if (tip) out.push('꿀팁 하나. ' + clip(tip, 56), '');

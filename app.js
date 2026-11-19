@@ -821,7 +821,7 @@
     if (!currentBiz().name) {
       state.sampleBizData = {
         name: '반짝줄눈',
-        contact: '010-0000-0000 (예시)',
+        contact: '010-0000-0000',
         closing: '다음에도 깔끔하게 모시겠습니다.',
         style: state.tone
       };
