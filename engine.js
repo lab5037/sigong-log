@@ -648,6 +648,9 @@
       }[st]);
     }
 
+    // 현장 요약표는 본문 앞쪽에 둔다
+    lines.push(summaryText(ctx.summary));
+
     const photoTypes = [];
     if (ctx.photos.during) photoTypes.push('작업 중');
     photoTypes.push('시공 후');
@@ -670,8 +673,6 @@
       return '· ' + tip[st];
     })).join('\n');
     lines.push(tipBlock);
-
-    lines.push(summaryText(ctx.summary));
 
     if (ctx.pricePrivate) {
       lines.push({
@@ -853,6 +854,8 @@
       '작업 전후 사진도 남겨 두었으니 나중에 비교해 보셔도 됩니다.',
       '',
       region + ' 근처는 일정만 맞으면 당일 방문도 가능하고, 작업 후에 문제가 생기면 A/S로 다시 봐드립니다.',
+      '이 동네에서 오래 일해 왔으니, 궁금한 점은 사진 한 장만 보내주셔도 됩니다.',
+      '방문 전에 사진으로 상태 먼저 확인하고 견적 드립니다.',
       '사진 몇 장 보내주시면 견적이랑 일정 바로 잡아드릴게요. 편하게 당근 채팅 주세요' + contactTail(ctx) + '.'
     ].join('\n');
   }
@@ -869,7 +872,7 @@
     const area = areaText(ctx);
     const hook = pick([
       ctx.issueShort + ', 사진으로 먼저 보세요.',
-      area + ' ' + I.keyword + ', ' + ctx.time + ' 작업했습니다.',
+      area + ' ' + I.keyword + ', ' + ctx.timeShort + ' 작업했습니다.',
       '이 ' + ctx.issueShort + ', 그냥 두면 더 번집니다.'
     ], ctx.rnd);
 
@@ -881,7 +884,7 @@
       hook,
       '',
       area + ' · ' + I.keyword,
-      ctx.time + ' 작업 · ' + pricePhrase(ctx),
+      ctx.timeShort + ' 작업 · ' + pricePhrase(ctx),
       '',
       '바뀐 포인트 3가지',
       points.join('\n'),

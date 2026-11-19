@@ -23,12 +23,14 @@
     gemini: 'fieldlog.gemini.v1',
     layout: 'fieldlog.layout.v1',
     webhook: 'fieldlog.webhook.v1',
-    lead: 'fieldlog.lead.v1'
+    lead: 'fieldlog.lead.v1',
+    channel: 'fieldlog.channel.v1'
   };
 
   const state = {
     view: 'land',
     industryId: '',
+    channel: 'blog',
     tone: 'haeyo',
     photos: { before: null, during: null, after: null },
     layout: 'h',
@@ -102,6 +104,49 @@
     $('#bottomBar').hidden = name !== 'write';
     $$('[data-land-only]').forEach(function (a) { a.style.display = name === 'land' ? '' : 'none'; });
     window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
+  }
+
+  /* ── 채널 선택 ──────────────────────────────────────────────────── */
+  function renderChannelChips() {
+    const html = E.CHANNELS.map(function (c) {
+      return '<button class="channel-chip" type="button" data-channel="' + c.id + '">' +
+        '<span class="cc-emoji" aria-hidden="true">' + c.emoji + '</span>' +
+        '<span class="cc-text"><strong>' + c.label + '</strong><small>' + c.short + '</small></span>' +
+        '</button>';
+    }).join('');
+    $$('.channel-chips').forEach(function (box) { box.innerHTML = html; });
+    paintChannel();
+  }
+
+  function paintChannel() {
+    const ch = E.getChannel(state.channel);
+    $$('.channel-chip').forEach(function (b) {
+      b.classList.toggle('is-on', b.getAttribute('data-channel') === ch.id);
+    });
+    const hint = $('#channelHint');
+    if (hint) hint.textContent = ch.hint;
+    const toneHint = $('#toneHint');
+    if (toneHint) {
+      toneHint.textContent = ch.id === 'blog'
+        ? '블로그 본문 말투입니다.'
+        : ch.label + ' 형식은 채널 말투로 자동 변환됩니다 (말투 설정은 블로그에 적용)';
+    }
+  }
+
+  function setChannel(id) {
+    const ch = E.getChannel(id);
+    if (state.channel === ch.id) return;
+    state.channel = ch.id;
+    write(STORE.channel, ch.id);
+    paintChannel();
+    if (state.view === 'result' && state.result) {
+      state.result = E.generate(collectInput());
+      renderResult();
+      drawCompare();
+      toast(ch.label + ' 형식으로 다시 뽑았어요');
+    } else {
+      toast(ch.label + ' 형식으로 만들게요');
+    }
   }
 
   /* ── 랜딩: 업종 카드 ────────────────────────────────────────────── */
@@ -465,23 +510,34 @@
 
   function aiPrompt(draft) {
     const tone = E.STYLE_LABEL[state.tone] || '친근한 해요체';
+    const ch = E.getChannel(state.channel);
+    const rules = ch.id === 'blog'
+      ? [
+          "3. '[📸 사진 위치 : ...]' 줄은 글자 그대로 유지하고, 그 바로 아래 줄에 '→ ' 로 시작하는 사진 설명 한 줄을 추가한다. (사진에서 보이는 것만)",
+          "4. '■' 로 시작하는 소제목 구조와 '■ 현장 요약' 항목은 유지한다.",
+          '5. 분량은 900~1,200자를 유지한다.',
+          '6. 말투는 ' + tone + '로 통일한다.'
+        ]
+      : [
+          "3. '" + ch.label + "' 형식(첫 줄·줄바꿈·문단 순서·마지막 문의 유도 문장)을 그대로 유지한다. '[📸 사진 위치]'나 '■' 소제목은 새로 넣지 않는다.",
+          '4. 분량은 초안과 비슷하게 유지한다' + (ch.id === 'threads' ? ' (500자 이내).' : '.'),
+          '5. 말투는 초안의 구어체를 유지한다.'
+        ];
     return [
-      '너는 한국 시공·청소 업체 사장님의 네이버 블로그 후기를 다듬는 편집자다.',
+      '너는 한국 시공·청소 업체 사장님의 ' + ch.label + ' 후기를 다듬는 편집자다.',
       '아래 초안은 규칙 기반으로 만든 원고다. 첨부한 현장 사진(시공 전·작업 중·시공 후)을 실제로 보고, 사진에서 확인되는 상태만 반영해 문장을 다듬어라.',
       '',
       '지킬 것:',
       '1. 지역, 평수, 업종, 공정 이름, 견적, 업체명, 연락처 같은 사실은 초안 그대로 둔다. 없는 내용을 지어내지 않는다.',
-      '2. 사진에서 실제로 보이는 오염, 시공 상태, 마감 상태만 묘사한다. 사진에 없으면 언급하지 않는다.',
-      "3. '[📸 사진 위치 : ...]' 줄은 글자 그대로 유지하고, 그 바로 아래 줄에 '→ ' 로 시작하는 사진 설명 한 줄을 추가한다. (사진에서 보이는 것만)",
-      "4. '■' 로 시작하는 소제목 구조와 '■ 현장 요약' 항목은 유지한다.",
-      '5. 말투는 ' + tone + '로 통일한다.',
-      '6. 금지 표현: ~에 대해 알아보겠습니다, 살펴보겠습니다, 다음과 같습니다, 결론적으로, 도움이 되셨길, 지금부터, 최고, 완벽, 100%',
-      '7. 광고 문구나 이모지를 새로 넣지 않는다. "저희가 최선을 다해" 같은 뻔한 문장도 넣지 않는다.',
-      '8. 출력은 다듬은 본문 전체만. 설명, 인사말, 코드블록 표시 없이.',
+      '2. 사진에서 실제로 보이는 오염, 시공 상태, 마감 상태만 묘사한다. 사진에 없으면 언급하지 않는다.'
+    ].concat(rules).concat([
+      '- 금지 표현: ~에 대해 알아보겠습니다, 살펴보겠습니다, 다음과 같습니다, 결론적으로, 도움이 되셨길, 지금부터, 최고, 완벽, 100%',
+      '- 광고 문구나 이모지를 새로 넣지 않는다. "저희가 최선을 다해" 같은 뻔한 문장도 넣지 않는다.',
+      '- 출력은 다듬은 본문 전체만. 설명, 인사말, 코드블록 표시 없이.',
       '',
       '─ 초안 ─',
       draft
-    ].join('\n');
+    ]).join('\n');
   }
 
   async function callGemini(promptText, images) {
@@ -543,7 +599,9 @@
     try {
       const polished = await callGemini(aiPrompt(state.result.body), state.photos);
       const clean = E.sanitize(polished);
-      if (clean.length < 250 || clean.indexOf('■') < 0) throw new Error('결과가 짧습니다');
+      const ch = E.getChannel(state.channel);
+      if (clean.length < (ch.id === 'blog' ? 250 : 80)) throw new Error('결과가 짧습니다');
+      if (ch.id === 'blog' && clean.indexOf('■') < 0) throw new Error('형식이 깨졌습니다');
       setBody(clean);
       state.aiTouched = true;
       $('#bodyMeta').textContent = '사진 분석 반영 · ' + countChars(clean) + '자';
@@ -566,6 +624,7 @@
 
   function collectInput() {
     return {
+      channel: state.channel,
       industryId: state.industryId,
       place: $('#placeInput').value.trim(),
       extra: $('#extraInput').value.trim(),
@@ -598,16 +657,26 @@
     if (aiReady()) runAI(false);
   }
 
-  function composeFullText(r) {
-    const body = r.body.replace(r.summaryText, '').replace(/\n{3,}/g, '\n\n').trim();
-    return [r.titles[0], '', r.summaryText, '', body, '', r.hashtagText].join('\n').replace(/\n{3,}/g, '\n\n');
+  function refreshFullText() {
+    if (state.result) state.result.fullText = E.fullTextOf(state.result);
   }
 
   function renderResult() {
     const r = state.result;
     if (!r) return;
     const ind = E.getIndustry(r.industryId);
-    $('#resultMeta').textContent = (ind ? ind.label : '') + ' · ' + r.summary[0].v + ' · ' + r.styleLabel;
+    const ch = E.getChannel(r.channel);
+    $('#resultMeta').textContent = ch.label + ' · ' + (ind ? ind.label : '') + ' · ' + r.summary[0].v;
+
+    const hasTitles = r.titles.length > 0;
+    $('#titleCard').hidden = !hasTitles;
+    if (hasTitles) {
+      $('#titleCardTitle').textContent = r.titles.length > 1 ? '제목 3안' : '제목';
+      $('#titleCardSub').textContent = ch.id === 'blog'
+        ? '지역 키워드가 들어간 순서입니다'
+        : '동네 소식 제목으로 그대로 쓰시면 됩니다';
+      $('#copyTitleBtn').textContent = r.titles.length > 1 ? '1번 제목 복사' : '제목 복사';
+    }
 
     const list = $('#titleList');
     list.innerHTML = r.titles.map(function (t, i) {
@@ -616,23 +685,34 @@
     }).join('');
 
     $('#bodyText').innerHTML = renderBodyHtml(r.body);
-    $('#bodyMeta').textContent = '공백 제외 ' + countChars(r.body) + '자';
+    $('#bodyMeta').textContent = ch.label + ' · 공백 제외 ' + countChars(r.body) + '자';
     $('#bodyEdit').value = r.body;
     $('#bodyEdit').hidden = true;
     $('#bodyText').hidden = false;
     $('#editBodyBtn').textContent = '수정하기';
 
+    const tagCard = $('#tagCard');
+    tagCard.hidden = r.hashtags.length === 0;
+    if (r.hashtags.length) {
+      $('#tagCardTitle').textContent = '해시태그 ' + r.hashtags.length + '개';
+      $('#tagCardSub').textContent = ch.id === 'blog' ? '그대로 붙여넣으세요' : '캡션 끝에 그대로 붙여넣으세요';
+    }
     $('#tagList').innerHTML = r.hashtags.map(function (t) { return '<span>' + escapeHtml(t) + '</span>'; }).join('');
+
+    $('#seoCard').hidden = r.seoKeywords.length === 0;
     $('#seoList').innerHTML = r.seoKeywords.map(function (t) { return '<span>' + escapeHtml(t) + '</span>'; }).join('');
+
     $('#aiHint').textContent = getGeminiKey()
-      ? '사진을 다시 읽혀 문장을 다듬을 수 있어요.'
-      : 'Gemini 키를 넣으면 사진 속 상태까지 읽어 문장을 다듬습니다.';
+      ? '사진을 다시 읽혀 ' + ch.label + ' 형식 그대로 문장을 다듬을 수 있어요.'
+      : 'Gemini 키를 넣으면 사진 속 상태까지 읽어 ' + ch.label + ' 형식으로 다듬습니다.';
     state.editingBody = false;
+    paintChannel();
   }
 
   function renderBodyHtml(body) {
     return body.split('\n').map(function (line) {
       if (/^\[📸/.test(line)) return '<span class="ph">' + escapeHtml(line) + '</span>';
+      if (/^■/.test(line)) return '<span class="sec">' + escapeHtml(line) + '</span>';
       return escapeHtml(line);
     }).join('\n');
   }
@@ -647,7 +727,7 @@
   function setBody(text) {
     if (!state.result) return;
     state.result.body = text;
-    state.result.fullText = composeFullText(state.result);
+    refreshFullText();
     if (state.editingBody) $('#bodyEdit').value = text;
     else $('#bodyText').innerHTML = renderBodyHtml(text);
     $('#bodyMeta').textContent = '공백 제외 ' + countChars(text) + '자';
@@ -694,12 +774,44 @@
     });
   }
 
-  /* ── 예시 체험 ──────────────────────────────────────────────────── */
-  function runSample() {
-    state.industryId = 'movein';
+  /* ── 예시 체험 (assets/demo-*.jpg 실사 사진) ────────────────────── */
+  function photoAsset(name) {
+    return new Promise(function (resolve, reject) {
+      const img = new Image();
+      img.onload = function () {
+        try {
+          const max = 1080;
+          const scale = Math.min(1, max / Math.max(img.width, img.height));
+          const w = Math.round(img.width * scale);
+          const h = Math.round(img.height * scale);
+          const cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          const cx = cv.getContext('2d');
+          cx.drawImage(img, 0, 0, w, h);
+          resolve(cv.toDataURL('image/jpeg', 0.9));
+        } catch (e) { reject(e); }
+      };
+      img.onerror = function () { reject(new Error('asset ' + name)); };
+      img.src = 'assets/demo-' + name + '.jpg';
+    });
+  }
+
+  // assets 사진을 못 읽으면(로컬 파일·오프라인) 기존 일러스트로 대체한다.
+  async function samplePhotos() {
+    try {
+      const list = await Promise.all(['before', 'during', 'after'].map(photoAsset));
+      return { before: list[0], during: list[1], after: list[2] };
+    } catch (e) {
+      console.info('[현장로그] 예시 사진을 불러오지 못해 일러스트로 대체합니다.', e);
+      return C.makeSamplePhotos();
+    }
+  }
+
+  async function runSample() {
+    state.industryId = 'grout';
     state.seed = Date.now() % 100000;
-    $('#placeInput').value = '송파구 헬리오시티 34평';
-    $('#detailInput').value = '주방 기름때 심함, 욕실 곰팡이, 4시간 소요';
+    $('#placeInput').value = '송파구 헬리오시티 24평';
+    $('#detailInput').value = '욕실 줄눈 곰팡이, 탄성코트 희망';
     $('#priceInput').value = '35~40만 원';
     $('#pricePrivate').checked = false;
     $('#extraInput').value = '';
@@ -708,7 +820,7 @@
 
     if (!currentBiz().name) {
       state.sampleBizData = {
-        name: '반짝입주청소',
+        name: '반짝줄눈',
         contact: '010-0000-0000 (예시)',
         closing: '다음에도 깔끔하게 모시겠습니다.',
         style: state.tone
@@ -719,14 +831,13 @@
       updateBizSummary();
     }
 
-    const samples = C.makeSamplePhotos();
+    showView('write');
+    toast('예시 현장으로 채웠어요');
+    const samples = await samplePhotos();
     setPhoto('before', samples.before);
     setPhoto('during', samples.during);
     setPhoto('after', samples.after);
-
-    showView('write');
     setTimeout(function () { doGenerate(); }, 60);
-    toast('예시 현장으로 채웠어요');
   }
 
   /* ── 이벤트 연결 ────────────────────────────────────────────────── */
@@ -851,9 +962,19 @@
       });
     });
 
+    // 채널
+    $$('.channel-chips').forEach(function (box) {
+      box.addEventListener('click', function (ev) {
+        const b = ev.target.closest('[data-channel]');
+        if (!b) return;
+        setChannel(b.getAttribute('data-channel'));
+      });
+    });
+
     // 생성
     $('#generateBtn').addEventListener('click', doGenerate);
     $('#sampleBtn').addEventListener('click', runSample);
+    $('#demoTryBtn').addEventListener('click', runSample);
 
     // 결과
     $('#backToWrite').addEventListener('click', function () { showView('write'); });
@@ -922,9 +1043,11 @@
 
   /* ── 시작 ───────────────────────────────────────────────────────── */
   function init() {
+    state.channel = E.getChannel(read(STORE.channel, 'blog')).id;
     renderLanding();
     renderApplyForm();
     renderIndustryChips();
+    renderChannelChips();
     bind();
     loadBiz();
     loadDraft();
@@ -947,6 +1070,8 @@
       doGenerate: doGenerate,
       showView: showView,
       setPhoto: setPhoto,
+      setChannel: setChannel,
+      samplePhotos: samplePhotos,
       getWebhookUrl: getWebhookUrl,
       composeCompare: function () { return drawCompare(); }
     };

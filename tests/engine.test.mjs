@@ -107,6 +107,80 @@ ok(!noBiz.body.includes('입니다. 송파구'), '업체명 없으면 자연스�
 const avg = Math.round(totalChars.reduce((a, b) => a + b, 0) / totalChars.length);
 ok(avg > 950 && avg < 3000, '본문 평균 길이 적정', avg);
 
+// 11) 채널 4종 — 같은 현장 정보로 형식만 달라진다
+ok(E.CHANNELS.length === 4 && E.CHANNELS.map(c => c.id).join(',') === 'blog,danggeun,insta,threads', '채널 4종 정의');
+
+const chBase = {
+  industryId: 'movein', place: '송파구 헬리오시티 34평', detail: '주방 기름때 심함, 4시간 소요',
+  price: '35~40만 원', business: BIZ, photos: PHOTOS, seed: 21
+};
+const chBlog = E.generate({ ...chBase });
+ok(chBlog.channel === 'blog' && chBlog.channelLabel === '네이버 블로그', '채널 미지정 시 블로그' , chBlog.channel);
+ok(chBlog.titles.length === 3 && chBlog.hashtags.length === 5 && chBlog.seoKeywords.length === 4, '블로그 기본 구성', [chBlog.titles.length, chBlog.hashtags.length, chBlog.seoKeywords.length].join('/'));
+
+for (const ind of E.INDUSTRIES) {
+  const tag = ind.id;
+  const base = { ...chBase, industryId: ind.id, extra: ind.extra ? '4대 · 천장형 4WAY' : '' };
+
+  // 네이버 블로그 — 900~1,200자 상세 본문
+  const blog = E.generate({ ...base, channel: 'blog' });
+  ok(blog.body.length >= 900 && blog.body.length <= 1210, tag + ' 블로그 본문 900~1,200자', String(blog.body.length));
+  ok(blog.body.includes('■ 현장 요약') && (blog.body.match(/\[📸 사진 위치/g) || []).length >= 4, tag + ' 블로그 요약표·사진 위치');
+  ok(blog.titles.length === 3 && blog.hashtags.length === 5 && blog.seoKeywords.length === 4, tag + ' 블로그 3제목·5태그·4키워드');
+
+  // 당근 — 동네 소식, 짧은 본문 + 채팅 유도
+  const dg = E.generate({ ...base, channel: 'danggeun' });
+  const dgNs = dg.body.replace(/\s/g, '').length;
+  ok(dg.channelLabel === '당근', tag + ' 당근 라벨');
+  ok(dgNs >= 300 && dgNs <= 500, tag + ' 당근 본문 300~500자', String(dgNs));
+  ok(dg.body.length <= 500, tag + ' 당근 본문 공백 포함 500자 이내', String(dg.body.length));
+  ok((dg.body.match(/^· /gm) || []).length === 4, tag + ' 당근 현장 요약 4줄');
+  ok(dg.body.includes('당일') && dg.body.includes('A/S'), tag + ' 당근 빠른 방문·A/S');
+  ok(dg.body.includes('채팅'), tag + ' 당근 채팅 문의 유도');
+  ok(dg.body.includes('송파구'), tag + ' 당근 지역 포함');
+  ok(!dg.body.includes('[📸') && !dg.body.includes('■'), tag + ' 당근 블로그 형식 없음');
+  ok(dg.titles.length === 1 && dg.hashtags.length === 0, tag + ' 당근 제목 1개·해시태그 없음');
+
+  // 인스타그램 — 후킹 첫 줄 + 3포인트 + 저장/DM 유도 + 해시태그 5개
+  const ig = E.generate({ ...base, channel: 'insta' });
+  const igLines = ig.body.split('\n');
+  ok(ig.channelLabel === '인스타그램', tag + ' 인스타 라벨');
+  ok(igLines[0].length > 5 && igLines[0].length <= 46 && !igLines[0].startsWith('#'), tag + ' 인스타 후킹 첫 줄', igLines[0]);
+  ok(ig.body.includes('바뀐 포인트 3가지'), tag + ' 인스타 3포인트 헤더');
+  ok((ig.body.match(/^\d\. /gm) || []).length === 3, tag + ' 인스타 포인트 3개');
+  ok(ig.body.includes('저장해 두셨다가') && ig.body.includes('DM'), tag + ' 인스타 저장·DM 유도');
+  ok(ig.hashtags.length === 5, tag + ' 인스타 해시태그 5개');
+  ok(ig.titles.length === 0, tag + ' 인스타 제목 없음');
+  ok(ig.body.split('\n').filter(l => !l.trim()).length >= 4, tag + ' 인스타 짧은 줄바꿈');
+
+  // 스레드 — 500자 이내 1인칭 구어체
+  const th = E.generate({ ...base, channel: 'threads' });
+  ok(th.channelLabel === '스레드', tag + ' 스레드 라벨');
+  ok(th.body.length <= 500, tag + ' 스레드 500자 이내', String(th.body.length));
+  ok(th.hashtags.length <= 1, tag + ' 스레드 해시태그 0~1개', String(th.hashtags.length));
+  ok(!th.body.includes('[📸') && !th.body.includes('■'), tag + ' 스레드 블로그 형식 없음');
+  ok(/어요|습니다|돼요/.test(th.body), tag + ' 스레드 구어체');
+  ok(th.body.includes('꿀팁'), tag + ' 스레드 꿀팁 한 줄');
+
+  // 채널이 달라도 같은 현장 정보는 유지된다
+  ok(blog.summary[0].v === dg.summary[0].v && dg.summary[0].v === ig.summary[0].v && ig.summary[0].v === th.summary[0].v, tag + ' 채널 간 현장 정보 동일');
+  ok(new Set([blog.body, dg.body, ig.body, th.body]).size === 4, tag + ' 채널별 본문 상이');
+  ok(dg.hashtagText === '' && th.hashtagText.split(' ').length <= 1, tag + ' 채널별 해시태그 수');
+}
+
+// 12) 채널 결과의 전체 복사 텍스트
+const copyIg = E.generate({ ...chBase, channel: 'insta' });
+ok(copyIg.fullText.includes(copyIg.hashtags[0]) && copyIg.fullText.includes('바뀐 포인트'), '인스타 전체 복사에 해시태그 포함');
+const copyDg = E.generate({ ...chBase, channel: 'danggeun' });
+ok(copyDg.fullText.startsWith(copyDg.titles[0]) && copyDg.fullText.includes('당근 채팅'), '당근 전체 복사에 제목·본문');
+const copyTh = E.generate({ ...chBase, channel: 'threads' });
+ok(copyTh.fullText.includes('#') === (copyTh.hashtags.length === 1), '스레드 전체 복사 해시태그 일치');
+
+// 13) 채널 전환 시 seed가 같아도 다시 뽑을 수 있다
+const dgA = E.generate({ ...chBase, channel: 'danggeun', seed: 5 });
+const dgB = E.generate({ ...chBase, channel: 'danggeun', seed: 6 });
+ok(dgA.body !== dgB.body || dgA.body.length > 0, '당근 seed 재생성');
+
 console.log('\n본문 평균 길이:', avg, '자');
 console.log('통과:', pass, ' 실패:', fail);
 if (fails.length) { console.log('\n실패 목록:'); fails.forEach(f => console.log(' -', f)); process.exit(1); }
