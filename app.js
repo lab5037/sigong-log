@@ -36,7 +36,7 @@
     aiBusy: false,
     aiTouched: false,
     editingBody: false,
-    sampleBiz: false,
+    sampleBizData: null,
     plan: ''
   };
 
@@ -252,6 +252,7 @@
   }
 
   function currentBiz() {
+    if (state.sampleBizData) return state.sampleBizData;
     return {
       name: $('#bizName').value.trim(),
       contact: $('#bizContact').value.trim(),
@@ -262,6 +263,12 @@
 
   let saveTimer = null;
   function saveBizSoon() {
+    if (state.sampleBizData) {
+      const s0 = $('#saveState');
+      s0.textContent = '예시 정보는 저장되지 않아요 — 내 업체 정보를 넣어 주세요';
+      setTimeout(function () { s0.textContent = ''; }, 2600);
+      return;
+    }
     clearTimeout(saveTimer);
     saveTimer = setTimeout(function () {
       const biz = currentBiz();
@@ -698,10 +705,15 @@
     syncPriceDisabled();
 
     if (!currentBiz().name) {
-      state.sampleBiz = true;
-      $('#bizName').value = '반짝입주청소';
-      $('#bizContact').value = '010-0000-0000 (예시)';
-      $('#bizClosing').value = '다음에도 깔끔하게 모시겠습니다.';
+      state.sampleBizData = {
+        name: '반짝입주청소',
+        contact: '010-0000-0000 (예시)',
+        closing: '다음에도 깔끔하게 모시겠습니다.',
+        style: state.tone
+      };
+      state.tone = state.sampleBizData.style;
+      paintTone();
+      $('#sampleBizNote').hidden = false;
       updateBizSummary();
     }
 
@@ -764,7 +776,19 @@
 
     // 업체 정보
     ['#bizName', '#bizContact', '#bizClosing'].forEach(function (s) {
-      $(s).addEventListener('input', saveBizSoon);
+      $(s).addEventListener('input', function () {
+        if (state.sampleBizData) { state.sampleBizData = null; $('#sampleBizNote').hidden = true; }
+        saveBizSoon();
+      });
+    });
+    $('#useMyBizBtn').addEventListener('click', function () {
+      state.sampleBizData = null;
+      $('#sampleBizNote').hidden = true;
+      $('#bizBody').hidden = false;
+      $('#bizToggle').setAttribute('aria-expanded', 'true');
+      updateBizSummary();
+      $('#bizName').focus();
+      toast('상호명부터 넣어주세요');
     });
     $('#bizToggle').addEventListener('click', function () {
       const body = $('#bizBody');
