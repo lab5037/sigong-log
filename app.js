@@ -33,6 +33,7 @@
     mode: 'login',
     busy: false,
     pending: false,      // 로그인 뒤 이어서 만들 원고가 있는지
+    actionSignIn: false, // 사용자가 방금 로그인/가입 버튼을 눌러 생긴 SIGNED_IN인지
     ready: false
   };
 
@@ -119,6 +120,7 @@
     if (event === 'SIGNED_OUT' || !session) { auth.profile = null; paintAuth(); return; }
     if (event === 'TOKEN_REFRESHED') { return; }
     const wasPending = auth.pending;
+    const byUser = auth.actionSignIn;
     loadProfile().then(function (p) {
       if (event !== 'SIGNED_IN' && event !== 'INITIAL_SESSION') { paintSysState(); return; }
       closeAuthModal();
@@ -126,9 +128,11 @@
         auth.pending = false;
         toast('로그인했어요 · 원고를 만들게요');
         doGenerate();
-      } else if (event === 'SIGNED_IN') {
-        toast('로그인했어요 · ' + planInfo(p).text);
+      } else if (event === 'SIGNED_IN' && byUser) {
+        const info = (p && !auth.profileError) ? ' · ' + planInfo(p).text : '';
+        toast('로그인했어요' + info);
       }
+      auth.actionSignIn = false;
       paintSysState();
     });
   }
@@ -347,6 +351,7 @@
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { authMsg('이메일 주소를 확인해 주세요.'); return; }
     if (pw.length < 6) { authMsg('비밀번호는 6자 이상으로 넣어 주세요.'); return; }
     setAuthBusy(true);
+    auth.actionSignIn = true;
     try {
       if (auth.mode === 'signup') {
         const r = await auth.sb.auth.signUp({
@@ -354,16 +359,18 @@
           password: pw,
           options: { emailRedirectTo: location.origin + location.pathname }
         });
-        if (r.error) { authMsg(mapAuthError(r.error)); return; }
+        if (r.error) { auth.actionSignIn = false; authMsg(mapAuthError(r.error)); return; }
         if (r.data && r.data.session) { authMsg('가입 완료 — 바로 시작할 수 있어요', true); return; }
+        auth.actionSignIn = false;
         authMsg('가입 확인 메일을 보냈어요. 메일의 링크를 누른 뒤 [로그인] 탭에서 로그인해 주세요. (스팸함도 확인해 주세요)', true);
         setAuthMode('login');
       } else {
         const r = await auth.sb.auth.signInWithPassword({ email: email, password: pw });
-        if (r.error) { authMsg(mapAuthError(r.error)); return; }
+        if (r.error) { auth.actionSignIn = false; authMsg(mapAuthError(r.error)); return; }
         authMsg('로그인 중…', true);
       }
     } catch (e) {
+      auth.actionSignIn = false;
       authMsg(mapAuthError(e));
     } finally {
       setAuthBusy(false);
