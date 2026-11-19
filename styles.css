@@ -233,8 +233,9 @@ img { max-width: 100%; display: block; }
 }
 .price-name { font-size: 13px; font-weight: 700; color: var(--muted); }
 .price-value { font-size: 24px; font-weight: 800; letter-spacing: -.03em; }
+.price-desc { font-size: 12.5px; font-weight: 700; color: var(--accent-dark); line-height: 1.5; margin-top: -4px; }
 .price-card ul { display: grid; gap: 6px; font-size: 13.5px; color: var(--ink-2); margin-bottom: 6px; }
-.price-card li { position: relative; padding-left: 15px; }
+.price-card li { position: relative; padding-left: 15px; line-height: 1.55; }
 .price-card li::before { content: "✓"; position: absolute; left: 0; color: var(--ok); font-size: 11px; font-weight: 800; }
 .price-note { font-size: 12px; color: var(--muted); margin-top: 12px; }
 

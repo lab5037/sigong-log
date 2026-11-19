@@ -126,7 +126,8 @@
   }
 
   function planLabel(plan) {
-    return ['라이트', '프로', '초기 1:1 세팅'].indexOf(plan) >= 0 ? plan : '미정';
+    // 카톡 1:1 대행형으로 개편(2026-11-19). 개편 전 명칭은 저장된 신청서 호환용.
+    return ['라이트', '프로', '카톡 1:1 대행형', '초기 1:1 세팅'].indexOf(plan) >= 0 ? plan : '미정';
   }
 
   function leadText(lead) {
