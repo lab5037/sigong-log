@@ -753,9 +753,169 @@
     return out.slice(0, 4);
   }
 
+  /* ─────────────────────────── 채널별 변환 ─────────────────────────── */
+
+  const CHANNELS = [
+    { id: 'blog', label: '네이버 블로그', emoji: '📝', short: '제목 3안 · 요약표 · 공정 본문', hint: '지역 키워드로 검색 유입을 노리는 상세 후기' },
+    { id: 'danggeun', label: '당근', emoji: '🥕', short: '동네 이웃 소식', hint: '이웃에게 말 거는 짧은 소식 + 채팅 문의' },
+    { id: 'insta', label: '인스타그램', emoji: '📷', short: '후킹 첫 줄 · 3포인트', hint: '피드·릴스 캡션, 저장 유도 + 해시태그' },
+    { id: 'threads', label: '스레드', emoji: '🧵', short: '500자 1인칭', hint: '짧은 호흡의 담백한 구어체' }
+  ];
+
+  function getChannel(id) {
+    return CHANNELS.filter(function (c) { return c.id === id; })[0] || CHANNELS[0];
+  }
+
+  function firstSentence(text) {
+    const t = String(text || '').replace(/\s+/g, ' ').trim();
+    const m = t.match(/^[^.!?]*[.!?]/);
+    return (m ? m[0] : t).trim();
+  }
+
+  function clip(text, max) {
+    const t = String(text || '').replace(/\s+/g, ' ').trim();
+    if (t.length <= max) return t;
+    return t.slice(0, max - 1).replace(/[ ,.·]$/, '') + '…';
+  }
+
+  function areaText(ctx) {
+    const p = ctx.place;
+    const bits = [];
+    if (p.building) bits.push(p.building);
+    if (p.pyeong) bits.push(p.pyeong + '평');
+    return bits.join(' ') || p.region || '현장';
+  }
+
+  function pricePhrase(ctx) {
+    return ctx.pricePrivate ? '현장 확인 후 안내' : (ctx.price || '현장 확인 후 안내');
+  }
+
+  function contactTail(ctx) {
+    const biz = ctx.business || {};
+    const contact = String(biz.contact || '').trim();
+    return contact ? ' (' + contact + ')' : '';
+  }
+
+  function issueLine(ctx, style) {
+    const d = ctx.detail;
+    if (d) {
+      return {
+        haeyo: '말씀하신 \'' + clip(d, 40) + '\' 부분부터 먼저 봤어요.',
+        hapsio: '\'' + clip(d, 40) + '\' 부위부터 먼저 점검했습니다.',
+        ilji: '중점 : ' + clip(d, 40) + '.'
+      }[style];
+    }
+    return {
+      haeyo: '\'' + ctx.issueShort + '\' 쪽부터 먼저 봤습니다.',
+      hapsio: '\'' + ctx.issueShort + '\' 부위부터 점검했습니다.',
+      ilji: '중점 : ' + ctx.issueShort + '.'
+    }[style];
+  }
+
+  /* 당근 — 동네 이웃에게 말 거는 소식 (요약 4줄 + 짧은 본문 + 채팅 유도) */
+  function buildDanggeun(ctx) {
+    const I = ctx.industry;
+    const biz = ctx.business || {};
+    const name = String(biz.name || '').trim();
+    const region = ctx.place.region || '이 동네';
+    const area = areaText(ctx);
+    const proc = I.processes[0];
+
+    const hello = name
+      ? '안녕하세요, ' + region + '에서 ' + I.keyword + ' 하는 ' + name + '입니다.'
+      : '안녕하세요, ' + region + '에서 ' + I.keyword + ' 하고 있습니다.';
+
+    return [
+      hello,
+      '· 현장 : ' + area + ' · ' + I.label,
+      '· 범위 : ' + I.scope,
+      '· 소요 : ' + ctx.time,
+      '· 견적 : ' + pricePhrase(ctx),
+      '',
+      issueLine(ctx, 'haeyo'),
+      '제일 오래 붙잡은 건 ' + proc.name + '이었어요. ' + clip(firstSentence(proc.lines.haeyo), 58),
+      '',
+      region + ' 근처는 일정만 맞으면 당일 방문도 가능하고, 작업 후에 문제가 생기면 A/S로 다시 봐드립니다.',
+      '사진 몇 장 보내주시면 견적이랑 일정 바로 잡아드릴게요. 편하게 당근 채팅 주세요' + contactTail(ctx) + '.'
+    ].join('\n');
+  }
+
+  function danggeunTitle(ctx) {
+    const I = ctx.industry;
+    const p = ctx.place;
+    const bits = [];
+    if (p.region) bits.push(p.region);
+    const area = areaText(ctx);
+    if (area && area !== p.region) bits.push(area);
+    return (bits.join(' ') + ' ' + I.keyword + ' 다녀왔어요').replace(/\s+/g, ' ').trim().slice(0, 48);
+  }
+
+  /* 인스타그램 — 후킹 첫 줄 + 짧은 줄바꿈 + 바뀐 포인트 3가지 + 저장·DM 유도 */
+  function buildInsta(ctx) {
+    const I = ctx.industry;
+    const region = ctx.place.region || '이 동네';
+    const area = areaText(ctx);
+    const hook = pick([
+      ctx.issueShort + ', 사진으로 먼저 보세요.',
+      area + ' ' + I.keyword + ', ' + ctx.time + ' 작업했습니다.',
+      '이 ' + ctx.issueShort + ', 그냥 두면 더 번집니다.'
+    ], ctx.rnd);
+
+    const points = I.processes.slice(0, 3).map(function (p, i) {
+      return (i + 1) + '. ' + p.name + ' — ' + clip(firstSentence(p.lines.haeyo), 40);
+    });
+
+    return [
+      hook,
+      '',
+      area + ' · ' + I.keyword,
+      ctx.time + ' 작업 · ' + pricePhrase(ctx),
+      '',
+      '바뀐 포인트 3가지',
+      points.join('\n'),
+      '',
+      region + ' 근처는 일정만 맞으면 당일 방문도 됩니다.',
+      '',
+      '저장해 두셨다가 필요할 때 편하게 DM이나 프로필 링크로 문의 주세요.' + contactTail(ctx)
+    ].join('\n');
+  }
+
+  /* 스레드 — 500자 이내 1인칭 구어체, 짧은 호흡, 꿀팁 한 줄 + 가벼운 마무리 */
+  function buildThreads(ctx) {
+    const I = ctx.industry;
+    const region = ctx.place.region || '이 동네';
+    const area = areaText(ctx);
+    const proc = I.processes[0];
+    const tip = I.tips[0] && I.tips[0].haeyo ? I.tips[0].haeyo : '';
+
+    const out = [
+      '오늘 ' + area + ' ' + I.keyword + ' 하고 왔어요. ' + ctx.time + ' 걸렸습니다.',
+      '',
+      issueLine(ctx, 'haeyo'),
+      clip(firstSentence(proc.lines.haeyo), 56),
+      ''
+    ];
+    if (tip) out.push('꿀팁 하나. ' + clip(tip, 56), '');
+    out.push(
+      region + ' 근처면 일정 맞춰 당일도 가능합니다.',
+      '사진 보내주시면 견적이랑 같이 봐드려요' + contactTail(ctx) + '.'
+    );
+    return out.join('\n');
+  }
+
+  function fullTextOf(r) {
+    const tags = r.hashtagText || '';
+    if (r.channel && r.channel !== 'blog') {
+      return [r.titles && r.titles[0] ? r.titles[0] : '', r.body.replace(r.summaryText || '', '').trim(), tags]
+        .filter(Boolean).join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
+    }
+    const rest = r.body.replace(r.summaryText, '').replace(/\n{3,}/g, '\n\n').trim();
+    return [r.titles[0], '', r.summaryText, '', rest, '', tags].join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
   /**
    * @param {object} input
-   *   industryId, place, detail, extra, price, pricePrivate,
+   *   industryId, place, detail, extra, price, pricePrivate, channel,
    *   business {name, contact, style, closing},
    *   photos {before, during, after}, seed
    */
@@ -792,13 +952,36 @@
     };
 
     ctx.summary = buildSummary(ctx);
-    const body = sanitize(buildBody(ctx));
-    const titles = buildTitles(ctx);
-    const hashtags = buildHashtags(ctx);
-    const seo = buildSeoKeywords(ctx);
+    const ch = getChannel(input.channel);
     const sumText = summaryText(ctx.summary);
 
-    return {
+    let body, titles, hashtags, seo;
+    if (ch.id === 'danggeun') {
+      body = sanitize(buildDanggeun(ctx));
+      titles = [danggeunTitle(ctx)];
+      hashtags = [];
+      seo = [];
+    } else if (ch.id === 'insta') {
+      body = sanitize(buildInsta(ctx));
+      titles = [];
+      hashtags = buildHashtags(ctx).slice(0, 5);
+      seo = [];
+    } else if (ch.id === 'threads') {
+      body = sanitize(buildThreads(ctx));
+      titles = [];
+      hashtags = buildHashtags(ctx).slice(0, 1);
+      seo = [];
+    } else {
+      body = sanitize(buildBody(ctx));
+      titles = buildTitles(ctx);
+      hashtags = buildHashtags(ctx);
+      seo = buildSeoKeywords(ctx);
+    }
+
+    const result = {
+      channel: ch.id,
+      channelLabel: ch.label,
+      channelHint: ch.hint,
       industryId: I.id,
       industryLabel: I.label,
       style: style,
@@ -810,20 +993,24 @@
       hashtags: hashtags,
       hashtagText: hashtags.join(' '),
       seoKeywords: seo,
-      fullText: [titles[0], '', sumText, '', body.replace(sumText, '').replace(/\n{3,}/g, '\n\n').trim(), '', hashtags.join(' ')].join('\n').replace(/\n{3,}/g, '\n\n'),
       seed: seed
     };
+    result.fullText = fullTextOf(result);
+    return result;
   }
 
   return {
     INDUSTRIES: INDUSTRIES,
+    CHANNELS: CHANNELS,
     STYLE_LABEL: STYLE_LABEL,
     generate: generate,
+    getChannel: getChannel,
     getIndustry: getIndustry,
     parsePlace: parsePlace,
     placeLabel: placeLabel,
     fullPlace: fullPlace,
     sanitize: sanitize,
+    fullTextOf: fullTextOf,
     BANNED: BANNED
   };
 });
