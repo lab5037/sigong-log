@@ -44,7 +44,8 @@
     layout: 'fieldlog.layout.v1',
     webhook: 'fieldlog.webhook.v1',
     lead: 'fieldlog.lead.v1',
-    channel: 'fieldlog.channel.v1'
+    channel: 'fieldlog.channel.v1',
+    owner: 'fieldlog.owner.v1'   // 마지막으로 로그인한 계정 id (계정 전환 감지용)
   };
 
   const state = {
@@ -78,6 +79,19 @@
   function write(key, value) {
     try { localStorage.setItem(key, JSON.stringify(value)); return true; }
     catch (e) { return false; }
+  }
+
+  // 로그아웃·계정 전환 시 이 기기에 남은 업체정보·신청서·초안을 지운다.
+  function clearLocalPII() {
+    [STORE.biz, STORE.draft, STORE.lead].forEach(function (k) {
+      try { localStorage.removeItem(k); } catch (e) {}
+    });
+    state.sampleBizData = null;
+    ['#bizName', '#bizContact', '#bizClosing', '#placeInput', '#detailInput', '#priceInput', '#extraInput'].forEach(function (s) {
+      const el = $(s);
+      if (el) el.value = '';
+    });
+    updateBizSummary();
   }
 
   /* ── 계정 · 무료 체험 잠금 (Supabase) ───────────────────────────── */
@@ -117,7 +131,13 @@
   }
 
   function afterAuthChange(event, session) {
-    if (event === 'SIGNED_OUT' || !session) { auth.profile = null; paintAuth(); return; }
+    if (event === 'SIGNED_OUT' || !session) {
+      auth.profile = null;
+      write(STORE.owner, '');
+      clearLocalPII();
+      paintAuth();
+      return;
+    }
     if (event === 'TOKEN_REFRESHED') { return; }
     const wasPending = auth.pending;
     const byUser = auth.actionSignIn;
@@ -160,6 +180,10 @@
 
   async function loadProfile() {
     if (!auth.sb || !auth.session) { auth.profile = null; auth.profileError = false; paintAuth(); return null; }
+    // 계정이 바뀌었으면 이 기기에 남은 이전 계정 정보가 새 계정으로 복사되지 않게 먼저 지운다.
+    const prevOwner = read(STORE.owner, '');
+    if (prevOwner && prevOwner !== auth.session.user.id) clearLocalPII();
+    write(STORE.owner, auth.session.user.id);
     let r;
     try {
       r = await auth.sb.from('profiles')
