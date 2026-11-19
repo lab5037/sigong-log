@@ -29,6 +29,7 @@
     session: null,       // 로그인 세션
     profile: null,       // profiles 행 (plan / used_count / 업체 정보)
     schemaMissing: false,// schema.sql 미실행 상태
+    profileError: false, // 프로필을 읽지 못한 상태(권한 등) — 횟수를 추측해 보여주지 않는다
     mode: 'login',
     busy: false,
     pending: false,      // 로그인 뒤 이어서 만들 원고가 있는지
@@ -154,7 +155,7 @@
   }
 
   async function loadProfile() {
-    if (!auth.sb || !auth.session) { auth.profile = null; paintAuth(); return null; }
+    if (!auth.sb || !auth.session) { auth.profile = null; auth.profileError = false; paintAuth(); return null; }
     let r;
     try {
       r = await auth.sb.from('profiles')
@@ -173,10 +174,12 @@
         console.warn('[현장로그] 프로필 조회 오류', r.error);
       }
       auth.profile = null;
+      auth.profileError = !isSchemaMissing(r.error);
       paintAuth();
       return null;
     }
     auth.schemaMissing = false;
+    auth.profileError = false;
     auth.profile = r.data || null;
     paintAuth();
     applyProfileBiz();
@@ -233,7 +236,7 @@
       chip.classList.toggle('is-on', signed && !info.out);
       chip.classList.toggle('is-out', signed && info.out);
       const t = $('#authChipText');
-      if (t) t.textContent = signed ? (auth.schemaMissing ? '로그인됨' : info.short) : '로그인';
+      if (t) t.textContent = signed ? ((auth.schemaMissing || auth.profileError) ? '로그인됨' : info.short) : '로그인';
       chip.setAttribute('aria-label', signed ? ('내 계정 · ' + (auth.session.user.email || '')) : '로그인 또는 회원가입');
     }
     const bar = $('#accountBar');
@@ -244,14 +247,12 @@
       $('#abSub').textContent = signed
         ? (auth.schemaMissing
           ? '체험 횟수 잠금이 아직 서버에 없어요 — 관리자 확인이 필요합니다'
-          : info.text + ' · 업체 정보는 계정에 저장됩니다')
+          : (auth.profileError
+            ? '체험 횟수를 서버에서 불러오지 못했어요 — 관리자 확인이 필요합니다'
+            : info.text + ' · 업체 정보는 계정에 저장됩니다'))
         : '무료 3건 체험을 위해 10초만 써 주세요';
       $('#abBtn').hidden = signed;
       $('#abActions').hidden = !signed;
-    }
-    if (signed && auth.profile && info.out && !auth.schemaMissing) {
-      // 배지만 보여 주고 모달은 사용자가 [후기 만들기]를 누를 때 띄운다.
-      if (bar) bar.classList.add('is-out');
     }
     paintSysState();
   }
@@ -261,6 +262,7 @@
     if (!el) return;
     if (!auth.sb) { el.textContent = '계정 모듈을 불러오지 못했습니다 — 새로고침해 주세요.'; return; }
     if (auth.schemaMissing) { el.textContent = '체험 횟수 서버 잠금: 미설치 — supabase/schema.sql을 SQL Editor에서 실행해 주세요.'; return; }
+    if (auth.session && auth.profileError) { el.textContent = '로그인은 되었지만 profiles 조회 권한이 없습니다 — supabase/schema.sql을 다시 실행해 주세요.'; return; }
     el.textContent = auth.session
       ? '계정 서버 연결됨 · ' + (auth.session.user.email || '') + ' · ' + planInfo(auth.profile).text
       : '계정 서버 연결됨 · 로그인 전';
@@ -1552,29 +1554,6 @@
     paintWebhookState();
     if (getWebhookUrl()) console.info('[현장로그] 신청 알림 웹훅이 설정돼 있습니다.');
 
-    // 테스트/자동화용 핸들 (공개되어도 개인정보 없음)
-    window.__fieldlog = {
-      state: state,
-      generate: function (overrides) {
-        const input = Object.assign(collectInput(), overrides || {});
-        return E.generate(input);
-      },
-      runSample: runSample,
-      doGenerate: doGenerate,
-      showView: showView,
-      setPhoto: setPhoto,
-      setChannel: setChannel,
-      samplePhotos: samplePhotos,
-      getWebhookUrl: getWebhookUrl,
-      auth: auth,
-      ensureQuota: ensureQuota,
-      loadProfile: loadProfile,
-      planInfo: function () { return planInfo(auth.profile); },
-      openAuthModal: openAuthModal,
-      openLimitModal: openLimitModal,
-      paintAuth: paintAuth,
-      composeCompare: function () { return drawCompare(); }
-    };
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

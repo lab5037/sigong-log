@@ -72,6 +72,7 @@ security invoker
 as $$
 begin
   if current_user in ('authenticated', 'anon') then
+    new.email := old.email;
     new.plan := old.plan;
     new.monthly_limit := old.monthly_limit;
     new.used_count := old.used_count;
@@ -192,7 +193,11 @@ $$;
 revoke all on function public.consume_generation(text, text, text) from public;
 grant execute on function public.consume_generation(text, text, text) to anon, authenticated;
 
-grant select, update on public.profiles to authenticated;
+-- 브라우저는 '업체 정보 4개 컬럼'만 수정할 수 있다. 요금제·횟수·이메일은 컬럼 권한 자체를 주지 않는다.
+revoke update on public.profiles from authenticated;
+revoke update on public.profiles from anon;
+grant update (shop_name, shop_contact, tone, closing) on public.profiles to authenticated;
+grant select on public.profiles to authenticated;
 grant select on public.generation_logs to authenticated;
 
 -- ── 4. 요금제 수동 변경(관리자용, SQL Editor에서 실행) ─────────────────
