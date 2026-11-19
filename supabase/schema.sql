@@ -38,6 +38,9 @@ create index if not exists generation_logs_user_idx on public.generation_logs (u
 alter table public.profiles enable row level security;
 alter table public.generation_logs enable row level security;
 
+-- 기존에 'friendly'로 만들어진 테이블도 있으므로 기본 말투를 맞춰 둔다.
+alter table public.profiles alter column tone set default 'haeyo';
+
 -- 본인 프로필 조회만 허용
 drop policy if exists "profiles_select_own" on public.profiles;
 create policy "profiles_select_own"

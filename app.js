@@ -87,7 +87,7 @@
       try { localStorage.removeItem(k); } catch (e) {}
     });
     state.sampleBizData = null;
-    ['#bizName', '#bizContact', '#bizClosing', '#placeInput', '#detailInput', '#priceInput', '#extraInput'].forEach(function (s) {
+    ['#bizName', '#bizContact', '#bizClosing', '#placeInput', '#detailInput', '#priceInput', '#extraInput', '#authEmail', '#authPw'].forEach(function (s) {
       const el = $(s);
       if (el) el.value = '';
     });
@@ -136,6 +136,7 @@
       auth.profile = null;
       write(STORE.owner, '');
       clearLocalPII();
+      setAuthMode('login');
       paintAuth();
       return;
     }
@@ -146,6 +147,7 @@
     loadProfile().then(function (p) {
       if (event !== 'SIGNED_IN' && event !== 'INITIAL_SESSION') { paintSysState(); return; }
       closeAuthModal();
+      setAuthMode('login');
       if (wasPending) {
         auth.pending = false;
         toast('로그인했어요 · 원고를 만들게요');
@@ -333,7 +335,7 @@
     $('#authSubmit').textContent = auth.mode === 'signup' ? '회원가입하고 시작하기' : '로그인';
     $('#authPw').setAttribute('autocomplete', auth.mode === 'signup' ? 'new-password' : 'current-password');
     $('#authNote').textContent = auth.mode === 'signup'
-      ? '가입 확인 메일이 갑니다. 메일의 링크를 누른 뒤 로그인해 주세요. (스팸함도 확인해 주세요)'
+      ? '가입한 이메일·비밀번호로 다음에도 로그인할 수 있습니다. 비밀번호는 저희가 볼 수 없습니다.'
       : '체험 횟수는 서버에 저장돼 기기를 바꿔도 유지됩니다. 비밀번호는 저희가 볼 수 없습니다.';
     authMsg('');
   }
