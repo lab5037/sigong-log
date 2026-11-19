@@ -605,7 +605,7 @@
       { k: '지역', v: ctx.placeLabel || '현장' },
       { k: '평수', v: ctx.place.pyeong ? ctx.place.pyeong + '평' : '미기재' }
     ];
-    if (ctx.extra) rows.push({ k: ctx.industry.extra.label, v: ctx.extra });
+    if (ctx.extra && ctx.industry.extra) rows.push({ k: ctx.industry.extra.label, v: ctx.extra });
     rows.push({ k: '작업 범위', v: ctx.industry.scope });
     rows.push({ k: '소요 시간', v: ctx.time });
     rows.push({ k: '견적', v: ctx.pricePrivate ? '현장 확인 후 안내' : (ctx.price || '현장 확인 후 안내') });
@@ -630,7 +630,7 @@
 
     if (ctx.photos.before) lines.push(markerLine(ctx.placeLabel + ' 현장 전경', '시공 전'));
 
-    if (ctx.extra) {
+    if (ctx.extra && ctx.industry.extra) {
       lines.push({
         haeyo: '이번 현장은 ' + ctx.extra + ' 기준으로 진행했어요. 기종마다 드레인 위치가 달라서 실내기 형식을 먼저 확인하고 순서를 잡았어요.',
         hapsio: '이번 현장은 ' + ctx.extra + ' 기준으로 진행했습니다. 기종별로 드레인 위치가 달라 실내기 형식을 먼저 확인한 뒤 순서를 정했습니다.',

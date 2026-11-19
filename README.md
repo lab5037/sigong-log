@@ -21,7 +21,7 @@
 | `engine.js` | 원고 엔진 원본 — **테스트와 서버 사본 동기화 기준**일 뿐, 페이지가 불러오지 않습니다 |
 | `assets/demo-before.jpg` 등 | 랜딩 예시·예시 체험에 쓰는 실제 현장 사진 3장 (810×1080, JPEG) |
 | `canvas.js` | 비포/애프터 1080×1080 카드 합성, 예시 사진 생성 |
-| `app.js` | 화면 로직, 사진 리사이즈, 로그인, 서버 원고 요청, Gemini 사진 인식, 신청 폼 |
+| `app.js` | 화면 로직, 사진 리사이즈, 로그인, 서버 원고 요청(사진 함께 전송), 신청 폼 |
 | `supabase/schema.sql` | Supabase 테이블(profiles·generation_logs·leads) + RLS + 횟수 차감 RPC |
 | `supabase/functions/generate-post/` | **원고 생성 Edge Function** (engine.ts 서버 사본 + 입력 검증) |
 | `supabase/functions/submit-lead/` | **신청 접수 Edge Function** (검증·스팸 방지 → leads 저장 → 텔레그램 알림) |
@@ -85,15 +85,18 @@
 
 ## 선택 기능
 
-### 1) Gemini 사진 인식 (키를 넣은 기기에서만)
+### 1) AI 문장 다듬기 (서버 내장 · 키 입력 없음)
 
-- 사이트 하단 **관리자 설정 · AI 키**에 Gemini API 키를 넣으면, 업로드한 시공 전·중·후 사진을
-  브라우저에서 1024px JPEG base64로 줄여 `gemini-2.5-flash`에 보내고,
-  사진에서 보이는 오염·시공 전후 상태를 본문과 사진 설명(`→ ...`)에 반영합니다.
-  사진이 있는 상태에서 [후기 만들기]를 누르면 자동으로 한 번 다듬고,
-  [AI로 문장 다듬기]로 다시 실행할 수 있습니다.
-- 키는 `localStorage`에만 저장되며 서버로 가지 않습니다. 키가 없는 기기에서는 결과 화면의 AI 버튼이 보이지 않습니다.
-- 키가 없거나 호출이 실패하면 **기본 원고 그대로** 남습니다(폴백).
+- Gemini 호출은 `generate-post` Edge Function이 서버에서 합니다. 키는 Supabase Secrets의
+  `GEMINI_API_KEY` 하나뿐이고, 브라우저에는 어떤 키도 내려가지 않습니다(입력칸 없음).
+- 사진을 올리면 브라우저에서 1024px JPEG base64로 줄여 원고 요청에 함께 보내고,
+  서버가 사진을 그대로 Gemini에 넘겨 사진에서 보이는 오염·시공 전후 상태를 본문과
+  사진 설명(`→ ...`)에 반영합니다. 사진이 없으면 문장만 다듬습니다.
+- 다듬기는 4채널을 한 번에 처리하고, 1건 생성에 1회로만 차감합니다(채널 전환은 무료).
+- 호출이 실패·시간 초과되거나 형식이 어긋나면 **규칙 기반 원고 그대로** 나갑니다(폴백).
+- 서버 Secrets로 조정: `GEMINI_MODEL`(기본 `gemini-3.1-flash-lite` → `gemini-3.8-flash` 순서로 시도),
+  `GEMINI_POLISH`=`always`(기본) | `photos`(사진이 있을 때만) | `off`(규칙 기반만).
+- 서버는 받은 사진을 저장하지 않고 요청 처리 중에만 Gemini로 넘깁니다.
 
 ### 2) 신청 접수 (Edge Function + leads 테이블)
 
@@ -147,11 +150,12 @@ deno test tests/edge-functions.test.ts
 
 ## 개인정보
 
-- 사진과 원고 생성은 서버(Supabase Edge Function)에서 처리되며, 사진 파일은 서버로 보내지 않습니다.
-  (사진은 브라우저에서 카드 합성에만 쓰고, Gemini를 쓸 때만 키를 넣은 그 브라우저에서 Google로 보냅니다.)
+- 원고 생성과 AI 다듬기는 서버(Supabase Edge Function)에서 처리합니다. 비포·애프터 카드는 브라우저에서
+  사진을 합성해 만들고, AI 다듬기를 쓸 때만 사진(1024px JPEG)이 서버를 거쳐 Google Gemini로 전달됩니다.
+  서버는 사진을 저장하지 않습니다.
 - 이메일·비밀번호는 Supabase 인증에 저장되고 비밀번호는 앱에서 볼 수 없습니다.
   체험 횟수·요금제·업체 정보만 `profiles`에, 생성 이력은 `generation_logs`에 저장되며 행 단위 보안(RLS)으로 본인 것만 읽습니다.
 - 신청서는 `leads`에 저장됩니다(상호명·업종·지역·연락처·요금제·유입 페이지·IP 해시).
   IP는 원문 대신 `LEAD_IP_SALT`로 해시해서만 보관합니다.
-- 업체 정보·말투·Gemini 키는 브라우저 `localStorage`에도 저장됩니다.
+- 업체 정보·말투는 브라우저 `localStorage`에도 저장됩니다(API 키는 저장하지 않습니다).
 - 공개 저장소·공개 번들에는 어떤 비밀키·토큰·전화번호도 넣지 않습니다.

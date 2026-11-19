@@ -71,6 +71,8 @@ ok($$('#landIndustryGrid .industry-card').length === 6, '랜딩 업종 카드 6�
 ok($$('#industryChips .chip').length === 6, '작성 업종 칩 6개');
 ok($$('.channel-chips').length >= 1 && $$('.channel-chips').every((b) => b.querySelectorAll('.channel-chip').length === 4), '채널 칩 4개씩');
 ok($('#coIndustry').options.length === 7, '신청 폼 업종 옵션 7개(빈 값 포함)');
+ok(!$('#geminiKey'), 'Gemini API 키 입력칸이 화면에 없다');
+ok(!$('#aiBtn'), 'AI 다듬기 버튼이 화면에 없다(서버가 자동 처리)');
 
 // 예시로 바로 체험하기
 $('#sampleBtn').click();

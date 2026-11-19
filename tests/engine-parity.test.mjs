@@ -54,6 +54,10 @@ ok(/functions\.invoke\('generate-post'/.test(app), 'app.js 가 generate-post Edg
 ok(/functions\.invoke\('submit-lead'/.test(app), 'app.js 가 submit-lead Edge Function 을 호출한다');
 ok(!/script\.google\.com/.test(app), 'app.js 에 GAS 웹훅 URL 이 없다');
 ok(!/sb_secret_[A-Za-z0-9_-]{6,}/.test(app), 'app.js 에 비밀키가 없다');
+ok(!/generativelanguage\.googleapis\.com/.test(app), '브라우저가 Gemini를 직접 부르지 않는다(서버 내장)');
+ok(!/geminiKey|fieldlog\.gemini/.test(app), 'app.js 에 Gemini 키 입력·저장 로직이 없다');
+const page2 = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+ok(!/geminiKey|Gemini API 키/.test(page2), 'index.html 에 API 키 입력칸이 없다');
 
 console.log('통과:', pass, ' 실패:', fail);
 if (fail) process.exit(1);

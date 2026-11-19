@@ -5,6 +5,7 @@
 #   · Supabase Access Token (sbp_...)  https://supabase.com/dashboard/account/tokens
 #   · Supabase CLI (v2 이상)  — 이 스크립트는 --use-api 로 번들해 Docker가 필요 없습니다.
 #   · 텔레그램 알림을 쓰려면 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (저장소에 넣지 말 것)
+#   · AI 다듬기를 쓰려면 GEMINI_API_KEY (선택: GEMINI_MODEL, GEMINI_POLISH)
 #
 # 사용 예 (프로젝트 루트에서)
 #   SUPABASE_ACCESS_TOKEN=sbp_xxx \
@@ -69,12 +70,15 @@ SECRET_ARGS=()
 [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]] && SECRET_ARGS+=("TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN")
 [[ -n "${TELEGRAM_CHAT_ID:-}" ]] && SECRET_ARGS+=("TELEGRAM_CHAT_ID=$TELEGRAM_CHAT_ID")
 [[ -n "${ALLOWED_ORIGINS:-}" ]] && SECRET_ARGS+=("ALLOWED_ORIGINS=$ALLOWED_ORIGINS")
+[[ -n "${GEMINI_API_KEY:-}" ]] && SECRET_ARGS+=("GEMINI_API_KEY=$GEMINI_API_KEY")
+[[ -n "${GEMINI_MODEL:-}" ]] && SECRET_ARGS+=("GEMINI_MODEL=$GEMINI_MODEL")
+[[ -n "${GEMINI_POLISH:-}" ]] && SECRET_ARGS+=("GEMINI_POLISH=$GEMINI_POLISH")
 if [[ ${#SECRET_ARGS[@]} -gt 0 ]]; then
   echo "▶ Secrets 설정: ${SECRET_ARGS[*]%%=*}"
   "$SB" secrets set --remote="$REF" --yes "${SECRET_ARGS[@]}" >/dev/null
   echo "  ✓ Secrets 설정 완료"
 else
-  echo "▶ Secrets 설정 건너뜀 — TELEGRAM_BOT_TOKEN·TELEGRAM_CHAT_ID 가 없으면 접수는 저장되고 알림만 생략됩니다."
+  echo "▶ Secrets 설정 건너뜀 — TELEGRAM 키가 없으면 알림만 생략되고, GEMINI_API_KEY 가 없으면 규칙 기반 원고만 나갑니다."
 fi
 # IP 해시용 salt (없으면 SERVICE_ROLE 키를 salt로 씀 — 고정 salt를 권장)
 if [[ -n "${LEAD_IP_SALT:-}" ]]; then

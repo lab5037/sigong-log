@@ -33,9 +33,8 @@
   };
 
   /* ── 설정 (공개 저장소용 값만) ───────────────────────────────────── */
-  const CONFIG = {
-    geminiModel: 'gemini-2.5-flash'
-  };
+  // AI 다듬기는 서버(Edge Function)가 Gemini 키를 들고 처리한다.
+  // 이 파일에는 어떤 API 키도 두지 않는다.
 
   /* ── Supabase (공개 프론트엔드용 값만 — sb_secret_·service_role 키는 절대 넣지 않음) ── */
   const SUPABASE = {
@@ -60,7 +59,6 @@
   const STORE = {
     biz: 'fieldlog.biz.v1',
     draft: 'fieldlog.draft.v1',
-    gemini: 'fieldlog.gemini.v1',
     layout: 'fieldlog.layout.v1',
     lead: 'fieldlog.lead.v1',
     channel: 'fieldlog.channel.v1',
@@ -76,8 +74,7 @@
     layout: 'h',
     result: null,
     seed: 1,
-    aiBusy: false,
-    aiTouched: false,
+    ai: null,          // 서버가 알려준 다듬기 결과 { used, model, channels }
     editingBody: false,
     sampleBizData: null,
     plan: '',
@@ -321,11 +318,6 @@
       : '계정 서버 연결됨 · 로그인 전';
   }
 
-  function paintAiRow() {
-    const row = $('#aiRow');
-    if (row) row.hidden = !getGeminiKey();
-  }
-
   function openAuthModal(reason) {
     const el = $('#authModal');
     if (!el) return;
@@ -501,7 +493,7 @@
       if (!payload || payload.ok !== true || !payload.posts) {
         return { ok: false, status: status, payload: {} };
       }
-      return { ok: true, posts: payload.posts, quota: payload.quota || null };
+      return { ok: true, posts: payload.posts, quota: payload.quota || null, ai: payload.ai || null };
     } catch (e) {
       console.warn('[현장로그] 원고 생성 요청 실패', e);
       return { ok: false, status: 0, payload: {} };
@@ -1003,16 +995,9 @@
     }).catch(function () { toast('사진을 읽지 못했어요'); });
   }
 
-  /* ── Gemini ─────────────────────────────────────────────────────── */
-  function getGeminiKey() {
-    return ($('#geminiKey').value || read(STORE.gemini, '') || '').trim();
-  }
-
-  function aiReady() {
-    return getGeminiKey().length > 20 && hasPhoto();
-  }
-
-  // Gemini Vision 입력용: 긴 변 1024px JPEG base64
+  /* ── 사진 → 서버 전달용 ──────────────────────────────────────────── */
+  // 사진은 긴 변 1024px JPEG base64로 만들어 generate-post 에 같이 보낸다.
+  // 서버는 받은 사진을 Gemini에 넘겨 문장을 다듬고 저장하지 않는다.
   function prepareForAI(dataURL) {
     return new Promise(function (resolve) {
       const img = new Image();
@@ -1034,114 +1019,17 @@
     });
   }
 
-  function aiPrompt(draft) {
-    const tone = CAT.STYLE_LABEL[state.tone] || '친근한 해요체';
-    const ch = CAT.getChannel(state.channel);
-    const rules = ch.id === 'blog'
-      ? [
-          "3. '[사진 : ...]' 줄은 글자 그대로 유지하고, 그 바로 아래 줄에 '→ ' 로 시작하는 사진 설명 한 줄을 추가한다. (사진에서 보이는 것만)",
-          "4. '■' 로 시작하는 소제목 구조와 '■ 현장 요약' 항목은 유지한다.",
-          '5. 분량은 900~1,200자를 유지한다.',
-          '6. 말투는 ' + tone + '로 통일한다.'
-        ]
-      : [
-          "3. '" + ch.label + "' 형식(첫 줄·줄바꿈·문단 순서·마지막 문의 유도 문장)을 그대로 유지한다. '[사진 : ...]'나 '■' 소제목은 새로 넣지 않는다.",
-          '4. 분량은 초안과 비슷하게 유지한다' + (ch.id === 'threads' ? ' (500자 이내).' : '.'),
-          '5. 말투는 초안의 구어체를 유지한다.'
-        ];
-    return [
-      '너는 한국 시공·청소 업체 사장님의 ' + ch.label + ' 후기를 다듬는 편집자다.',
-      '아래 초안은 규칙 기반으로 만든 원고다. 첨부한 현장 사진(시공 전·작업 중·시공 후)을 실제로 보고, 사진에서 확인되는 상태만 반영해 문장을 다듬어라.',
-      '',
-      '지킬 것:',
-      '1. 지역, 평수, 업종, 공정 이름, 견적, 업체명, 연락처 같은 사실은 초안 그대로 둔다. 없는 내용을 지어내지 않는다.',
-      '2. 사진에서 실제로 보이는 오염, 시공 상태, 마감 상태만 묘사한다. 사진에 없으면 언급하지 않는다.'
-    ].concat(rules).concat([
-      '- 금지 표현: ~에 대해 알아보겠습니다, 살펴보겠습니다, 다음과 같습니다, 결론적으로, 요약하면, 시사하는 바, 본질적으로, 도움이 되셨길, 지금부터, 최고, 완벽, 100%',
-      '- 줄표(—, –)를 쓰지 않는다. 나열이 필요하면 쉼표나 마침표로 끊는다.',
-      '- 연결어미(-고, -며, -서, -는데, -니까) 바로 뒤에 쉼표를 넣지 않는다.',
-      '- 광고 문구나 이모지를 새로 넣지 않는다. "저희가 최선을 다해" 같은 뻔한 문장도 넣지 않는다.',
-      '- 다 쓰고 나서 스스로 확인한다: ① 지역·평수·공정·견적·연락처가 초안과 같은가 ② 줄표가 없는가 ③ 이모지가 없는가 ④ 연결어미 뒤에 쉼표가 없는가 ⑤ 초안에 없던 사실이나 수치를 넣지 않았는가.',
-      '- 출력은 다듬은 본문 전체만. 설명, 인사말, 코드블록 표시 없이.',
-      '',
-      '─ 초안 ─',
-      draft
-    ]).join('\n');
-  }
-
-  async function callGemini(promptText, images) {
-    const key = getGeminiKey();
-    if (!key) throw new Error('no-key');
-    const parts = [{ text: promptText }];
-    const labels = { before: '시공 전 사진', during: '작업 중 사진', after: '시공 후 사진' };
+  // 서버 generate-post 로 같이 보낼 사진(base64). 사진별로 긴 변 1024px JPEG로 줄인다.
+  async function collectImages() {
+    const out = {};
     for (const slot of ['before', 'during', 'after']) {
       if (!state.photos[slot]) continue;
-      const b64 = await prepareForAI(state.photos[slot]);
-      if (!b64) continue;
-      parts.push({ text: labels[slot] });
-      parts.push({ inline_data: { mime_type: 'image/jpeg', data: b64 } });
+      try {
+        const b64 = await prepareForAI(state.photos[slot]);
+        if (b64) out[slot] = b64;
+      } catch (e) { /* 사진 한 장을 못 줄여도 나머지로 진행한다 */ }
     }
-    const res = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/' + CONFIG.geminiModel + ':generateContent?key=' + encodeURIComponent(key),
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: parts }],
-          generationConfig: { temperature: 0.75, topP: 0.95, maxOutputTokens: 4096 }
-        })
-      }
-    );
-    if (!res.ok) {
-      const t = await res.text();
-      throw new Error('gemini ' + res.status + ' ' + t.slice(0, 120));
-    }
-    const data = await res.json();
-    const cand = data && data.candidates && data.candidates[0];
-    const text = cand && cand.content && cand.content.parts && cand.content.parts.map(function (p) { return p.text || ''; }).join('\n');
-    if (!text) throw new Error('empty');
-    return text.replace(/^```[a-z]*\s*/i, '').replace(/```\s*$/i, '').trim();
-  }
-
-  async function runAI(manual) {
-    if (state.aiBusy || !state.result) return;
-    if (!getGeminiKey()) {
-      toast('AI 다듬기는 관리자 설정에서 Gemini 키를 넣은 기기에서만 동작해요');
-      return;
-    }
-    if (!hasPhoto()) {
-      toast('사진을 먼저 올려주세요');
-      return;
-    }
-    state.aiBusy = true;
-    const btn = $('#aiBtn');
-    const prevLabel = btn.textContent;
-    btn.textContent = '사진 읽는 중…';
-    btn.classList.add('loading-dots');
-    btn.disabled = true;
-    $('#aiHint').textContent = '사진 속 상태를 읽고 문장을 다듬고 있어요 (10~20초)';
-    if (manual) toast('사진을 읽고 있어요');
-    try {
-      const polished = await callGemini(aiPrompt(state.result.body), state.photos);
-      const clean = CAT.sanitize(polished);
-      const ch = CAT.getChannel(state.channel);
-      if (clean.length < (ch.id === 'blog' ? 250 : 80)) throw new Error('결과가 짧습니다');
-      if (ch.id === 'blog' && clean.indexOf('■') < 0) throw new Error('형식이 깨졌습니다');
-      setBody(clean);
-      state.aiTouched = true;
-      $('#bodyMeta').textContent = '사진 분석 반영 · ' + countChars(clean) + '자';
-      $('#aiHint').textContent = '사진에서 본 상태가 본문에 반영됐어요. 마음에 안 들면 [다른 표현으로]를 눌러 다시 만드세요.';
-      toast('사진을 반영해 다듬었어요');
-    } catch (err) {
-      $('#aiHint').textContent = 'AI 다듬기를 쓰지 못했어요. 기본 원고 그대로 사용하시면 됩니다.';
-      toast('AI 다듬기 실패 — 기본 원고로 진행합니다');
-      console.warn('[현장로그] gemini fail', err);
-    } finally {
-      state.aiBusy = false;
-      btn.textContent = prevLabel;
-      btn.classList.remove('loading-dots');
-      btn.disabled = false;
-    }
+    return out;
   }
 
   /* ── 생성 ───────────────────────────────────────────────────────── */
@@ -1189,16 +1077,19 @@
     state.genBusy = true;
     setGenBusy(true);
     try {
-      const res = await requestPosts(collectInput());
+      const input = collectInput();
+      if (hasPhoto()) toast('사진을 읽고 문장을 다듬고 있어요 (10초 안팎)');
+      input.images = await collectImages();
+      const res = await requestPosts(input);
       if (!res.ok) { handleGenError(res); return; }
       state.posts = res.posts;
       state.result = res.posts[state.channel] || res.posts.blog;
+      state.ai = res.ai || null;
       state.lastDemo = false;
       if (res.quota) applyUsage(res.quota);
       renderResult();
       showView('result');
       drawCompare();
-      if (aiReady()) runAI(false);
     } finally {
       state.genBusy = false;
       setGenBusy(false);
@@ -1260,11 +1151,22 @@
     $('#seoCard').hidden = r.seoKeywords.length === 0;
     $('#seoList').innerHTML = r.seoKeywords.map(function (t) { return '<span>' + escapeHtml(t) + '</span>'; }).join('');
 
-    $('#aiHint').textContent = getGeminiKey()
-      ? '사진을 다시 읽혀 ' + ch.label + ' 형식 그대로 문장을 다듬을 수 있어요.'
-      : 'Gemini 키를 넣으면 사진 속 상태까지 읽어 ' + ch.label + ' 형식으로 다듬습니다.';
+    $('#aiHint').textContent = aiHintText(ch);
     state.editingBody = false;
     paintChannel();
+  }
+
+  // 서버 다듬기 결과를 그대로 안내한다(키를 넣으라는 말은 더 이상 하지 않는다).
+  function aiHintText(ch) {
+    if (state.lastDemo) return '예시 원고예요. 실제 현장으로 만들면 사진 속 상태까지 읽어 다듬습니다.';
+    const ai = state.ai;
+    if (ai && ai.channels && ai.channels[ch.id] === 'ai') {
+      return '사진 속 상태를 읽어 ' + ch.label + ' 형식으로 다듬었어요. 마음에 안 들면 [다른 표현으로]를 눌러 다시 만드세요.';
+    }
+    if (ai && (ai.reason === 'no_photos' || !hasPhoto())) {
+      return '사진을 올리면 사진 속 상태까지 읽어 문장을 다듬어 드려요.';
+    }
+    return '기본 원고로 만들었어요. 원문 그대로 쓰셔도 되고 [수정하기]로 다듬으셔도 됩니다.';
   }
 
   function renderBodyHtml(body) {
@@ -1464,12 +1366,6 @@
         saveBizSoon();
       });
     });
-    $('#geminiKey').addEventListener('change', function () {
-      write(STORE.gemini, $('#geminiKey').value.trim());
-      paintAiRow();
-      toast($('#geminiKey').value.trim() ? '키를 저장했어요 (이 브라우저에만)' : '키를 지웠어요');
-    });
-
     // 계정 · 로그인 모달 · 체험 한도
     $('#authChip').addEventListener('click', function () {
       if (!auth.session) { openAuthModal('chip'); return; }
@@ -1616,7 +1512,6 @@
         toast('수정한 내용을 반영했어요');
       }
     });
-    $('#aiBtn').addEventListener('click', function () { runAI(true); });
     $('#regenBtn').addEventListener('click', function () {
       if (state.lastDemo) { showDemo(); return; }
       state.seed = (state.seed + 1 + Math.floor(Math.random() * 97)) >>> 0;
@@ -1632,7 +1527,7 @@
       state.posts = null;
       state.lastDemo = false;
       state.demoScene = false;
-      state.aiTouched = false;
+      state.ai = null;
       showView('write');
       $('#placeInput').focus();
     });
@@ -1648,13 +1543,10 @@
     bind();
     loadBiz();
     loadDraft();
-    const key = read(STORE.gemini, '');
-    if (key) $('#geminiKey').value = key;
     state.layout = read(STORE.layout, 'h');
     if (!state.industryId) state.industryId = '';
 
     paintAuth();
-    paintAiRow();
     initSupabase();
   }
 

@@ -98,6 +98,11 @@ ok(p2.region === '강남구' && p2.building === '역삼동 래미안', '지역 �
 const p3 = E.parsePlace('헬리오시티 34평');
 ok(p3.pyeong === '34', '지역 파싱 건물만', JSON.stringify(p3));
 
+// 8-b) extra가 없는 업종에 extra 값이 와도 깨지지 않는다 (ctx.industry.extra 방어)
+const strayExtra = E.generate({ industryId: 'grout', place: '강남구 역삼동 24평', extra: '4대 · 천장형 4WAY', photos: { before: true, after: true }, seed: 9 });
+ok(!strayExtra.summary.some((r) => r.k === '대수·모델명'), 'extra 없는 업종은 요약에 extra 행이 없다');
+ok(!strayExtra.body.includes('드레인') && !strayExtra.body.includes('실내기'), 'extra 없는 업종 본문에 에어컨 문구가 없다');
+
 // 9) 업체 정보 없이도 동작
 const noBiz = E.generate({ industryId: 'movein', place: '송파구 30평', photos: { before: true, after: true }, seed: 4 });
 ok(noBiz.body.length > 300 && !noBiz.body.includes('undefined'), '업체정보 없이 생성');
