@@ -131,13 +131,15 @@
   }
 
   function afterAuthChange(event, session) {
-    if (event === 'SIGNED_OUT' || !session) {
+    // 실제 로그아웃일 때만 이 기기의 개인정보를 지운다. (비로그인 방문·최초 로드에서는 초안을 지우지 않음)
+    if (event === 'SIGNED_OUT') {
       auth.profile = null;
       write(STORE.owner, '');
       clearLocalPII();
       paintAuth();
       return;
     }
+    if (!session) { auth.profile = null; paintAuth(); return; }
     if (event === 'TOKEN_REFRESHED') { return; }
     const wasPending = auth.pending;
     const byUser = auth.actionSignIn;
