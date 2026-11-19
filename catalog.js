@@ -20,28 +20,24 @@
     {
       "id": "blog",
       "label": "네이버 블로그",
-      "emoji": "📝",
       "short": "제목 3안 · 요약표 · 공정 본문",
       "hint": "지역 키워드로 검색 유입을 노리는 상세 후기"
     },
     {
       "id": "danggeun",
       "label": "당근",
-      "emoji": "🥕",
       "short": "동네 이웃 소식",
       "hint": "이웃에게 말 거는 짧은 소식 + 채팅 문의"
     },
     {
       "id": "insta",
       "label": "인스타그램",
-      "emoji": "📷",
       "short": "후킹 첫 줄 · 3포인트",
       "hint": "피드·릴스 캡션, 저장 유도 + 해시태그"
     },
     {
       "id": "threads",
       "label": "스레드",
-      "emoji": "🧵",
       "short": "500자 1인칭",
       "hint": "짧은 호흡의 담백한 구어체"
     }
@@ -51,7 +47,6 @@
     {
       "id": "movein",
       "label": "입주·이사청소",
-      "emoji": "🧹",
       "short": "이사 전날 하루로 끝내는 새집 정리",
       "keyword": "입주청소",
       "scope": "입주·이사청소 (주방·욕실·창틀·바닥)",
@@ -84,7 +79,6 @@
     {
       "id": "aircon",
       "label": "시스템에어컨 청소",
-      "emoji": "❄️",
       "short": "천장형 실내기 보양부터 조립까지",
       "keyword": "시스템에어컨 청소",
       "scope": "시스템에어컨 청소 (보양·완전분해·고압세척·살균)",
@@ -120,7 +114,6 @@
     {
       "id": "grout",
       "label": "줄눈·탄성코트",
-      "emoji": "🧱",
       "short": "파내고 다시 채워야 오래 갑니다",
       "keyword": "줄눈",
       "scope": "줄눈 재시공·욕실 탄성코트",
@@ -150,7 +143,6 @@
     {
       "id": "leak",
       "label": "누수·방수",
-      "emoji": "🔧",
       "short": "뜯기 전에 원인부터 찾습니다",
       "keyword": "누수탐지",
       "scope": "누수 탐지·방수 보강·타일 복구",
@@ -180,7 +172,6 @@
     {
       "id": "silicon",
       "label": "욕실·실리콘 시공",
-      "emoji": "🚿",
       "short": "덧바르지 않고 걷어내고 다시",
       "keyword": "욕실 실리콘",
       "scope": "욕실 실리콘 재시공·줄눈 마감",
@@ -210,7 +201,6 @@
     {
       "id": "screen",
       "label": "방충망·단열필름·중문",
-      "emoji": "🪟",
       "short": "틈새 하나까지 막는 시공",
       "keyword": "방충망교체",
       "scope": "방충망 교체·단열필름·중문 설치",
@@ -255,7 +245,30 @@
     "참고하시기 바랍니다",
     "라고 할 수 있습니다",
     "지금부터",
-    "많은 도움이"
+    "많은 도움이",
+    "요약하면",
+    "정리하면",
+    "시사하는 바",
+    "주목할 만한",
+    "주목할 만",
+    "본질적으로",
+    "핵심적으로",
+    "궁극적으로",
+    "다채로운",
+    "진정한",
+    "중추적인",
+    "필수적인",
+    "혁신적인",
+    "독보적인",
+    "파격적인",
+    "압도적인",
+    "획기적인",
+    "자리매김",
+    "발돋움",
+    "방증",
+    "향연",
+    "명심하셔야",
+    "명심해야"
   ];
 
   function getIndustry(id) {
@@ -266,11 +279,20 @@
     return CHANNELS.filter(function (c) { return c.id === id; })[0] || CHANNELS[0];
   }
 
-  // AI 다듬기 결과에서 걸러 낼 상투적 문구 (생성 로직 아님 · 글자 정리만)
+  // AI 다듬기 결과에서 걸러 낼 상투적 문구와 S1 흔적(줄표·이모지) (생성 로직 아님 · 글자 정리만)
+  // engine.js의 sanitize()와 같은 규칙을 쓴다.
+  const EMOJI_RE = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{2B00}-\u{2BFF}]/gu;
+
   function sanitize(text) {
     let out = String(text || '');
     BANNED.forEach(function (b) { if (out.indexOf(b) >= 0) out = out.split(b).join(''); });
-    return out.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+    out = out.replace(/[ \t]*[\u2014\u2013]+[ \t]*/g, ' : ');
+    out = out.replace(EMOJI_RE, '');
+    return out
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/ :[ \t]*:/g, ' :')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
   }
 
   // 본문을 직접 수정했을 때 '전체 복사' 텍스트를 다시 조립한다. (서버가 만든 결과 형식 그대로)

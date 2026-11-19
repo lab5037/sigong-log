@@ -17,7 +17,7 @@ function ok(cond, name, extra) {
 ok(JSON.stringify(CAT.STYLE_LABEL) === JSON.stringify(E.STYLE_LABEL), 'STYLE_LABEL 동일');
 
 // 2) 채널
-const chFields = ['id', 'label', 'emoji', 'short', 'hint'];
+const chFields = ['id', 'label', 'short', 'hint'];
 ok(CAT.CHANNELS.length === E.CHANNELS.length, '채널 개수 동일');
 E.CHANNELS.forEach((c) => {
   const hit = CAT.CHANNELS.find((x) => x.id === c.id);
@@ -31,7 +31,7 @@ E.INDUSTRIES.forEach((ind) => {
   const hit = CAT.getIndustry(ind.id);
   ok(!!hit, '카탈로그에 업종 있음: ' + ind.id);
   if (!hit) return;
-  ['label', 'emoji', 'short', 'keyword', 'scope'].forEach((f) => ok(hit[f] === ind[f], ind.id + ' ' + f));
+  ['label', 'short', 'keyword', 'scope'].forEach((f) => ok(hit[f] === ind[f], ind.id + ' ' + f));
   ok(JSON.stringify(hit.quickTags) === JSON.stringify(ind.quickTags), ind.id + ' 빠른 태그');
   ok(JSON.stringify(hit.extra || null) === JSON.stringify(ind.extra || null), ind.id + ' 추가 입력칸');
   ok(JSON.stringify(hit.processes.map((p) => p.name)) === JSON.stringify(ind.processes.map((p) => p.name)), ind.id + ' 공정 이름');

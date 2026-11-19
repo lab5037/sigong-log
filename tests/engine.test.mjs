@@ -31,8 +31,8 @@ for (const ind of E.INDUSTRIES) {
     ok(r.body.includes('송파구'), tag + ' 본문 지역 포함');
     ok(r.body.includes('■ 현장 요약'), tag + ' 요약 섹션');
     ok(r.body.includes('· 견적 : 35~40만 원'), tag + ' 요약 견적');
-    ok((r.body.match(/\[📸 사진 위치/g) || []).length >= 4, tag + ' 사진 위치 4개 이상',
-      String((r.body.match(/\[📸 사진 위치/g) || []).length));
+    ok((r.body.match(/\[사진 : /g) || []).length >= 4, tag + ' 사진 위치 4개 이상',
+      String((r.body.match(/\[사진 : /g) || []).length));
     ok(ind.processes.every(p => r.body.includes('■ ' + p.name)), tag + ' 모든 공정 포함');
     ok(r.hashtags.length === 5, tag + ' 해시태그 5개', JSON.stringify(r.hashtags));
     ok(r.hashtags.every(h => h.startsWith('#') && h.length > 2), tag + ' 해시태그 형식');
@@ -67,7 +67,7 @@ ok(priv.titles[2].includes('비용'), '비공개 제목3 비용 키워드', priv
 // 4) 사진 종류에 따라 마커 수가 달라진다
 const only = E.generate({ industryId: 'movein', place: '송파구 헬리오시티 34평', business: BIZ, photos: { before: true, after: true }, seed: 5 });
 ok(!only.body.includes('작업 중'), '작업 중 사진 없으면 마커 없음');
-ok((only.body.match(/\[📸 사진 위치/g) || []).length >= 3, '전/후만 있어도 마커 3개 이상');
+ok((only.body.match(/\[사진 : /g) || []).length >= 3, '전/후만 있어도 마커 3개 이상');
 
 // 5) 재생성(seed) 시 표현이 달라진다
 const s1 = E.generate({ industryId: 'aircon', place: '마포구 상암동 30평', business: BIZ, photos: PHOTOS, seed: 100 });
@@ -125,7 +125,7 @@ for (const ind of E.INDUSTRIES) {
   // 네이버 블로그 — 900~1,200자 상세 본문
   const blog = E.generate({ ...base, channel: 'blog' });
   ok(blog.body.length >= 900 && blog.body.length <= 1210, tag + ' 블로그 본문 900~1,200자', String(blog.body.length));
-  ok(blog.body.includes('■ 현장 요약') && (blog.body.match(/\[📸 사진 위치/g) || []).length >= 4, tag + ' 블로그 요약표·사진 위치');
+  ok(blog.body.includes('■ 현장 요약') && (blog.body.match(/\[사진 : /g) || []).length >= 4, tag + ' 블로그 요약표·사진 위치');
   ok(blog.titles.length === 3 && blog.hashtags.length === 5 && blog.seoKeywords.length === 4, tag + ' 블로그 3제목·5태그·4키워드');
 
   // 당근 — 동네 소식, 짧은 본문 + 채팅 유도
@@ -138,7 +138,7 @@ for (const ind of E.INDUSTRIES) {
   ok(dg.body.includes('당일') && dg.body.includes('A/S'), tag + ' 당근 빠른 방문·A/S');
   ok(dg.body.includes('채팅'), tag + ' 당근 채팅 문의 유도');
   ok(dg.body.includes('송파구'), tag + ' 당근 지역 포함');
-  ok(!dg.body.includes('[📸') && !dg.body.includes('■'), tag + ' 당근 블로그 형식 없음');
+  ok(!dg.body.includes('[사진') && !dg.body.includes('■'), tag + ' 당근 블로그 형식 없음');
   ok(dg.titles.length === 1 && dg.hashtags.length === 0, tag + ' 당근 제목 1개·해시태그 없음');
 
   // 인스타그램 — 후킹 첫 줄 + 3포인트 + 저장/DM 유도 + 해시태그 5개
@@ -158,7 +158,7 @@ for (const ind of E.INDUSTRIES) {
   ok(th.channelLabel === '스레드', tag + ' 스레드 라벨');
   ok(th.body.length <= 500, tag + ' 스레드 500자 이내', String(th.body.length));
   ok(th.hashtags.length <= 1, tag + ' 스레드 해시태그 0~1개', String(th.hashtags.length));
-  ok(!th.body.includes('[📸') && !th.body.includes('■'), tag + ' 스레드 블로그 형식 없음');
+  ok(!th.body.includes('[사진') && !th.body.includes('■'), tag + ' 스레드 블로그 형식 없음');
   ok(/어요|습니다|돼요/.test(th.body), tag + ' 스레드 구어체');
   ok(th.body.includes('꿀팁'), tag + ' 스레드 꿀팁 한 줄');
 
@@ -180,6 +180,39 @@ ok(copyTh.fullText.includes('#') === (copyTh.hashtags.length === 1), '스레드 
 const dgA = E.generate({ ...chBase, channel: 'danggeun', seed: 5 });
 const dgB = E.generate({ ...chBase, channel: 'danggeun', seed: 6 });
 ok(dgA.body !== dgB.body || dgA.body.length > 0, '당근 seed 재생성');
+
+
+// 14) AI 티(결정적 흔적) 없음 — korean-humanizer S1 규칙
+// 줄표(—·–), 연결어미 뒤 쉼표(-고/-며/-서/-지만/-는데/-니까,), 이모지가 원고에 남으면 실패한다.
+// (사진 위치 마커는 이모지 없이 '[사진 : 공정 · 라벨]' 로만 나간다.)
+const AI_EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{2B00}-\u{2BFF}]/gu;
+const AI_CONN = /[가-힣](?:고|며|서|지만|는데|니까|나),\s/g;
+const AI_DASH = /[—–]/g;
+let aiDocs = 0;
+for (const ind of E.INDUSTRIES) {
+  for (const style of styles) {
+    for (const seed of [1, 7]) {
+      for (const ch of ['blog', 'danggeun', 'insta', 'threads']) {
+        const r = E.generate({
+          industryId: ind.id, place: '송파구 헬리오시티 34평', detail: '주방 기름때 심함',
+          extra: ind.extra ? '4대 · 천장형 4WAY' : '', price: '35~40만 원',
+          business: { ...BIZ, style }, photos: PHOTOS, seed, channel: ch
+        });
+        const text = [r.body, r.titles.join('\n'), r.hashtags.join(' '), r.fullText].join('\n');
+        const tag = ind.id + '/' + style + '/' + ch;
+        ok(!AI_DASH.test(text), tag + ' 줄표 없음', (text.match(AI_DASH) || []).join(''));
+        ok(!AI_EMOJI.test(text), tag + ' 이모지 없음', (text.match(AI_EMOJI) || []).join(''));
+        ok(!AI_CONN.test(text), tag + ' 연결어미 뒤 쉼표 없음', (text.match(AI_CONN) || []).join(','));
+        aiDocs++;
+      }
+    }
+  }
+}
+// sanitize() 안전망: LLM이 넣은 줄표·이모지는 복사본에서 지워진다
+const dirty = E.sanitize('창틀은 진공으로 빼고 — 남은 자국은 📸 닦았어요');
+ok(!/[—–]/.test(dirty) && !/📸/.test(dirty), 'sanitize 줄표·이모지 제거', dirty);
+ok(E.sanitize('1. 기존 줄눈 제거 — 파내야 해요') === '1. 기존 줄눈 제거 : 파내야 해요', 'sanitize 줄표→쉼표 아님(:) 변환', E.sanitize('1. 기존 줄눈 제거 — 파내야 해요'));
+console.log('AI 흔적 검사 문서 수:', aiDocs);
 
 console.log('\n본문 평균 길이:', avg, '자');
 console.log('통과:', pass, ' 실패:', fail);

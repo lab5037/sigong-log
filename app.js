@@ -12,6 +12,26 @@
   const DEMO = window.FieldLogDemo;
   const C = window.FieldLogCanvas;
 
+  /* ── 라인 아이콘 (이모지 대신 쓰는 인라인 SVG — 1세트 1스트로크 1.5) ── */
+  function svg(paths, size) {
+    const n = size || 18;
+    return '<svg class="icon" viewBox="0 0 24 24" width="' + n + '" height="' + n + '" fill="none" ' +
+      'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + paths + '</svg>';
+  }
+  const ICON = {
+    blog: svg('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/>'),
+    danggeun: svg('<path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/>'),
+    insta: svg('<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="3.6"/><path d="M17.2 6.8h.01"/>'),
+    threads: svg('<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>'),
+    movein: svg('<path d="M4 10.5 12 4l8 6.5"/><path d="M6 9.5V20h12V9.5"/><path d="M10 20v-5h4v5"/>', 20),
+    aircon: svg('<path d="M4 8h9a3 3 0 1 0-3-3"/><path d="M4 12h13a3 3 0 1 1-3 3"/><path d="M4 16h6"/>', 20),
+    grout: svg('<rect x="3.5" y="3.5" width="17" height="17" rx="2"/><path d="M3.5 12h17M12 3.5v17"/>', 20),
+    leak: svg('<path d="M12 3.5 6.8 10a7 7 0 1 0 10.4 0z"/><path d="M9.5 14.5a2.6 2.6 0 0 0 2.5 2.4"/>', 20),
+    silicon: svg('<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18 17v3M16.5 18.5h3"/>', 20),
+    screen: svg('<rect x="3.5" y="4" width="17" height="14" rx="1.5"/><path d="M12 4v14M3.5 11h17"/><path d="M7 21h10"/>', 20),
+    camera: svg('<path d="M4 8.5h2.6L8 6h8l1.4 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.4" r="3.4"/>', 16)
+  };
+
   /* ── 설정 (공개 저장소용 값만) ───────────────────────────────────── */
   const CONFIG = {
     geminiModel: 'gemini-2.5-flash'
@@ -577,7 +597,7 @@
   function renderChannelChips() {
     const html = CAT.CHANNELS.map(function (c) {
       return '<button class="channel-chip" type="button" data-channel="' + c.id + '">' +
-        '<span class="cc-emoji" aria-hidden="true">' + c.emoji + '</span>' +
+        '<span class="cc-icon" aria-hidden="true">' + (ICON[c.id] || ICON.blog) + '</span>' +
         '<span class="cc-text"><strong>' + c.label + '</strong><small>' + c.short + '</small></span>' +
         '</button>';
     }).join('');
@@ -628,7 +648,7 @@
     grid.innerHTML = CAT.INDUSTRIES.map(function (ind) {
       const flow = ind.processes.slice(0, 4).map(function (p) { return p.name; }).join(' → ');
       return '<article class="industry-card">' +
-        '<span class="ic-emoji">' + ind.emoji + '</span>' +
+        '<span class="ic-icon" aria-hidden="true">' + (ICON[ind.id] || '') + '</span>' +
         '<h3>' + ind.label + '</h3>' +
         '<p>' + ind.short + '</p>' +
         '<p class="ic-flow">' + flow + '</p>' +
@@ -824,8 +844,8 @@
       syncBizToServer();
       updateBizSummary();
       const s = $('#saveState');
-      s.textContent = '저장했어요 ✓';
-      setTimeout(function () { if (s.textContent === '저장했어요 ✓') s.textContent = ''; }, 1600);
+      s.textContent = '저장했어요';
+      setTimeout(function () { if (s.textContent === '저장했어요') s.textContent = ''; }, 1600);
     }, 350);
   }
 
@@ -846,7 +866,7 @@
   function renderIndustryChips() {
     const box = $('#industryChips');
     box.innerHTML = CAT.INDUSTRIES.map(function (i) {
-      return '<button class="chip" type="button" data-id="' + i.id + '">' + i.emoji + ' ' + i.label + '</button>';
+      return '<button class="chip" type="button" data-id="' + i.id + '">' + i.label + '</button>';
     }).join('');
   }
 
@@ -1019,13 +1039,13 @@
     const ch = CAT.getChannel(state.channel);
     const rules = ch.id === 'blog'
       ? [
-          "3. '[📸 사진 위치 : ...]' 줄은 글자 그대로 유지하고, 그 바로 아래 줄에 '→ ' 로 시작하는 사진 설명 한 줄을 추가한다. (사진에서 보이는 것만)",
+          "3. '[사진 : ...]' 줄은 글자 그대로 유지하고, 그 바로 아래 줄에 '→ ' 로 시작하는 사진 설명 한 줄을 추가한다. (사진에서 보이는 것만)",
           "4. '■' 로 시작하는 소제목 구조와 '■ 현장 요약' 항목은 유지한다.",
           '5. 분량은 900~1,200자를 유지한다.',
           '6. 말투는 ' + tone + '로 통일한다.'
         ]
       : [
-          "3. '" + ch.label + "' 형식(첫 줄·줄바꿈·문단 순서·마지막 문의 유도 문장)을 그대로 유지한다. '[📸 사진 위치]'나 '■' 소제목은 새로 넣지 않는다.",
+          "3. '" + ch.label + "' 형식(첫 줄·줄바꿈·문단 순서·마지막 문의 유도 문장)을 그대로 유지한다. '[사진 : ...]'나 '■' 소제목은 새로 넣지 않는다.",
           '4. 분량은 초안과 비슷하게 유지한다' + (ch.id === 'threads' ? ' (500자 이내).' : '.'),
           '5. 말투는 초안의 구어체를 유지한다.'
         ];
@@ -1037,8 +1057,11 @@
       '1. 지역, 평수, 업종, 공정 이름, 견적, 업체명, 연락처 같은 사실은 초안 그대로 둔다. 없는 내용을 지어내지 않는다.',
       '2. 사진에서 실제로 보이는 오염, 시공 상태, 마감 상태만 묘사한다. 사진에 없으면 언급하지 않는다.'
     ].concat(rules).concat([
-      '- 금지 표현: ~에 대해 알아보겠습니다, 살펴보겠습니다, 다음과 같습니다, 결론적으로, 도움이 되셨길, 지금부터, 최고, 완벽, 100%',
+      '- 금지 표현: ~에 대해 알아보겠습니다, 살펴보겠습니다, 다음과 같습니다, 결론적으로, 요약하면, 시사하는 바, 본질적으로, 도움이 되셨길, 지금부터, 최고, 완벽, 100%',
+      '- 줄표(—, –)를 쓰지 않는다. 나열이 필요하면 쉼표나 마침표로 끊는다.',
+      '- 연결어미(-고, -며, -서, -는데, -니까) 바로 뒤에 쉼표를 넣지 않는다.',
       '- 광고 문구나 이모지를 새로 넣지 않는다. "저희가 최선을 다해" 같은 뻔한 문장도 넣지 않는다.',
+      '- 다 쓰고 나서 스스로 확인한다: ① 지역·평수·공정·견적·연락처가 초안과 같은가 ② 줄표가 없는가 ③ 이모지가 없는가 ④ 연결어미 뒤에 쉼표가 없는가 ⑤ 초안에 없던 사실이나 수치를 넣지 않았는가.',
       '- 출력은 다듬은 본문 전체만. 설명, 인사말, 코드블록 표시 없이.',
       '',
       '─ 초안 ─',
@@ -1246,7 +1269,7 @@
 
   function renderBodyHtml(body) {
     return body.split('\n').map(function (line) {
-      if (/^\[📸/.test(line)) return '<span class="ph">' + escapeHtml(line) + '</span>';
+      if (/^\[사진[ :]/.test(line)) return '<span class="ph ph-photo">' + ICON.camera + '<span>' + escapeHtml(line) + '</span></span>';
       if (/^■/.test(line)) return '<span class="sec">' + escapeHtml(line) + '</span>';
       return escapeHtml(line);
     }).join('\n');
@@ -1535,6 +1558,17 @@
     $('#generateBtn').addEventListener('click', doGenerate);
     $('#sampleBtn').addEventListener('click', function () { runSample(false); });
     $('#demoTryBtn').addEventListener('click', function () { runSample(true); });
+    // 랜딩 예시 원고: 내부 스크롤 대신 '원고 전체 보기'로 펼친다
+    const moreBtn = $('#demoMoreBtn');
+    if (moreBtn) {
+      moreBtn.addEventListener('click', function () {
+        const open = moreBtn.getAttribute('aria-expanded') !== 'true';
+        moreBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        moreBtn.textContent = open ? '원고 접기' : '원고 전체 보기';
+        const pre = $('#demoText');
+        if (pre) pre.classList.toggle('is-open', open);
+      });
+    }
 
     // 결과
     $('#backToWrite').addEventListener('click', function () { showView('write'); });
