@@ -222,6 +222,25 @@ export function collapseMarkers(text: string): string {
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+/** 사진 위치 줄 바로 아래가 아닌 '→ ' 줄은 지운다(사진 설명은 사진 자리 밑에만 붙는다). */
+export function dropOrphanArrows(text: string): string {
+  const lines = String(text || '').split('\n');
+  const out: string[] = [];
+  let lastMeaning = '';
+  for (const line of lines) {
+    const t = line.trim();
+    if (/^→/.test(t)) {
+      if (!MARKER_RE.test(lastMeaning)) continue;
+      out.push(line);
+      lastMeaning = t;
+      continue;
+    }
+    out.push(line);
+    if (t) lastMeaning = t;
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 /** 사진이 없을 때는 모델이 지어낸 사진 설명(→ 줄)을 남기지 않는다. */
 export function stripPhotoArrows(text: string): string {
   return String(text || '')
@@ -322,7 +341,7 @@ export async function polishDraft(req: PolishRequest): Promise<PolishResult> {
   const deadline = Date.now() + budget;
   const left = () => deadline - Date.now();
   const finish = (raw: string) => {
-    const clean = collapseMarkers(restoreMarkers(sanitize(stripFence(raw)), req.draft));
+    const clean = dropOrphanArrows(collapseMarkers(restoreMarkers(sanitize(stripFence(raw)), req.draft)));
     const withEvidence = req.photos.length > 0 || !!req.analysis;
     return withEvidence ? clean : stripPhotoArrows(clean);
   };

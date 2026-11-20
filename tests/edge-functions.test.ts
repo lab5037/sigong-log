@@ -4,7 +4,7 @@
 
 import { assertEquals, assert } from 'jsr:@std/assert@1';
 import { cleanImage, parseGenerateInput } from '../supabase/functions/generate-post/input.ts';
-import { acceptPolished, buildPrompt, collapseMarkers, modelChain, restoreMarkers, stripPhotoArrows } from '../supabase/functions/generate-post/polish.ts';
+import { acceptPolished, buildPrompt, collapseMarkers, dropOrphanArrows, modelChain, restoreMarkers, stripPhotoArrows } from '../supabase/functions/generate-post/polish.ts';
 import { buildAnalysisPrompt, describeAnalysis, parseAnalysis, usableAnalysis, type SiteAnalysis } from '../supabase/functions/generate-post/analyze.ts';
 import { generate, sanitize } from '../supabase/functions/generate-post/engine.ts';
 import { decideSpam, isPhoneLike, nowKst, parseLead, telegramText } from '../supabase/functions/submit-lead/lead.ts';
@@ -225,6 +225,12 @@ Deno.test('polish: 모델 목록은 환경변수를 앞에 두고 중복을 지�
   assertEquals(modelChain('gemini-x')[0], 'gemini-x');
 });
 
+Deno.test('polish: 과장 표현(완벽)은 결과에서 지운다', () => {
+  const out = sanitize('오염물질을 완벽하게 제거한 뒤 마감했습니다. 완벽한 마감입니다.');
+  assertEquals(out.includes('완벽'), false, out);
+  assert(out.includes('제거한 뒤 마감했습니다'));
+});
+
 Deno.test('polish: 줄표·이모지는 결과에서 지운다', () => {
   const out = sanitize('줄표 — 테스트 😀 문장입니다.');
   assert(!/[\u2014\u2013]/.test(out));
@@ -260,6 +266,27 @@ Deno.test('polish: 반복된 사진 위치 줄은 하나만 남긴다', () => {
   assertEquals((out.match(/^→ /gm) || []).length, 2);
   assert(out.includes('→ 곰팡이.') && out.includes('→ 마감.'));
   assertEquals(out.includes('→ 물때.'), false);
+});
+
+Deno.test('polish: 사진 자리 밑이 아닌 → 줄은 지운다', () => {
+  const src = [
+    '[사진 : 욕실 바닥 · 시공 전]',
+    '→ 바닥 줄눈에 곰팡이가 번져 있습니다.',
+    '',
+    '■ 기존 줄눈 제거',
+    '',
+    '기존 줄눈은 그라인더로 파냈어요.',
+    '',
+    '→ 샤워기 수전에 석회질이 침착되어 세제가 필요합니다.',
+    '',
+    '[사진 : 탄성코트 · 시공 후]',
+    '→ 바닥 마감이 균일합니다.',
+  ].join('\n');
+  const out = dropOrphanArrows(src);
+  assert(out.includes('→ 바닥 줄눈에 곰팡이가 번져 있습니다.'), '사진 자리 밑 설명은 남긴다');
+  assert(out.includes('→ 바닥 마감이 균일합니다.'), '두 번째 사진 자리 설명도 남긴다');
+  assertEquals(out.includes('석회질이 침착되어 세제가 필요합니다'), false, '떠 있는 설명은 지운다');
+  assertEquals((out.match(/^→/gm) || []).length, 2);
 });
 
 /* ── 1단계: 사진 정밀 분석 ───────────────────────────────────────── */
