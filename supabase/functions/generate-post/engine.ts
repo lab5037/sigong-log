@@ -804,7 +804,7 @@
     // 달라진 점 — 공정 설명 뒤에 결과를 한 번에 보여 준다(본문 분량·키워드 분산).
     if (I.after && I.after.length) {
       const lead2 = {
-        haeyo: '작업을 마치고 ' + I.keyword + ' 후 달라진 부분은 이래요.',
+        haeyo: '작업을 마치고 확인한 결과는 이래요.',
         hapsio: I.keyword + ' 작업을 마친 뒤 달라진 부분을 정리했습니다.',
         ilji: '작업 후 변화 정리.'
       }[st];

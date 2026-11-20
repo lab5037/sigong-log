@@ -90,7 +90,7 @@ export function buildPrompt(req: Pick<PolishRequest, 'channel' | 'draft' | 'tone
   ]
     .concat(channelRules(req.channel, req.tone, withPhotos))
     .concat([
-      '- 금지 표현: ~에 대해 알아보겠습니다, 살펴보겠습니다, 다음과 같습니다, 결론적으로, 요약하면, 시사하는 바, 본질적으로, 도움이 되셨길, 지금부터, 최고, 완벽, 100%',
+      '- 금지 표현: ~에 대해 알아보겠습니다, 살펴보겠습니다, 다음과 같습니다, 다음과 같은, 결론적으로, 요약하면, 시사하는 바, 본질적으로, 도움이 되셨길, 지금부터, 최고, 완벽, 100%',
       '- 줄표(—, –)를 쓰지 않는다. 나열이 필요하면 쉼표나 마침표로 끊는다.',
       '- 연결어미(-고, -며, -서, -는데, -니까) 바로 뒤에 쉼표를 넣지 않는다.',
       '- 광고 문구나 이모지를 새로 넣지 않는다. "저희가 최선을 다해" 같은 뻔한 문장도 넣지 않는다.',
@@ -183,11 +183,16 @@ export function stripPhotoArrows(text: string): string {
 }
 
 /** 다듬은 글이 형식을 지켰는지 검사한다. 어긋나면 초안을 그대로 쓴다. */
+
+/** AI 상투어의 변형(초안에는 없는 말) — sanitize가 지우지 못하는 형태. */
+const SLOP = ['다음과 같', '라고 할 수 있', '요약하자면', '정리하자면', '도움이 되셨', '도움이 되었'];
+
 export function acceptPolished(channel: string, polished: string, draft: string): { ok: boolean; reason: string } {
   const ch = getChannel(channel);
   const text = String(polished || '').trim();
   if (!text) return { ok: false, reason: 'empty' };
   if (text.length > 6000) return { ok: false, reason: 'too_long' };
+  if (SLOP.some((s) => text.includes(s))) return { ok: false, reason: 'slop' };
   if (ch.id === 'blog') {
     if (text.length < 300) return { ok: false, reason: 'too_short' };
     // 초안보다 크게 줄어든 결과는 받지 않는다(분량이 줄면 검색 노출에 불리하다).

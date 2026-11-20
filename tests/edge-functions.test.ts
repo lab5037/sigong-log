@@ -181,6 +181,13 @@ Deno.test('polish: 초안보다 크게 줄어든 블로그 결과는 받지 않�
   assert(acceptPolished('blog', draft, draft).ok);
 });
 
+Deno.test('polish: AI 상투어 변형이 섞이면 초안으로 폴백한다', () => {
+  const draft = '■ 현장 요약\n' + '본문 내용입니다. '.repeat(120) + '\n[사진 : 창틀 · 시공 전]';
+  const sloppy = '■ 현장 요약\n' + '현장에 도착해서 확인한 상태는 다음과 같았어요. ' + '본문 내용입니다. '.repeat(110) + '\n[사진 : 창틀 · 시공 전]';
+  assertEquals(acceptPolished('blog', sloppy, draft).reason, 'slop');
+  assert(acceptPolished('blog', draft, draft).ok);
+});
+
 Deno.test('engine.ts: 블로그 원고에 SEO 섹션·1,500자·제목 앞배치', () => {
   const r = generate({
     industryId: 'grout',
