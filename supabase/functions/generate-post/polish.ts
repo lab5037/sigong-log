@@ -22,6 +22,8 @@ export interface PolishRequest {
   apiKey: string;
   models?: string[];
   timeoutMs?: number;
+  /** 동네 이름 — 다듬은 본문의 키워드 반복이 3~7회를 벗어나면 초안을 쓴다. */
+  region?: string;
 }
 
 export type PolishResult =
@@ -187,12 +189,19 @@ export function stripPhotoArrows(text: string): string {
 /** AI 상투어의 변형(초안에는 없는 말) — sanitize가 지우지 못하는 형태. */
 const SLOP = ['다음과 같', '라고 할 수 있', '요약하자면', '정리하자면', '도움이 되셨', '도움이 되었'];
 
-export function acceptPolished(channel: string, polished: string, draft: string): { ok: boolean; reason: string } {
+export function acceptPolished(channel: string, polished: string, draft: string, region?: string): { ok: boolean; reason: string } {
   const ch = getChannel(channel);
   const text = String(polished || '').trim();
   if (!text) return { ok: false, reason: 'empty' };
   if (text.length > 6000) return { ok: false, reason: 'too_long' };
   if (SLOP.some((s) => text.includes(s))) return { ok: false, reason: 'slop' };
+  // 동네 이름이 3~7회를 벗어나면(도배 또는 누락) 초안을 그대로 쓴다.
+  const area = String(region || '').trim();
+  if (ch.id === 'blog' && area) {
+    const hits = (s: string) => s.split(area).length - 1;
+    const inRange = (n: number) => n >= 3 && n <= 7;
+    if (inRange(hits(String(draft))) && !inRange(hits(text))) return { ok: false, reason: 'keyword_count' };
+  }
   if (ch.id === 'blog') {
     if (text.length < 300) return { ok: false, reason: 'too_short' };
     // 초안보다 크게 줄어든 결과는 받지 않는다(분량이 줄면 검색 노출에 불리하다).
@@ -279,7 +288,7 @@ export async function polishDraft(req: PolishRequest): Promise<PolishResult> {
         status = r.status;
         if (status === 200) {
           const clean = finish(r.text);
-          const check = acceptPolished(req.channel, clean, req.draft);
+          const check = acceptPolished(req.channel, clean, req.draft, req.region);
           if (check.ok) return { ok: true, body: clean, model };
           last = 'reject_' + check.reason;
           break; // 형식이 어긋난 결과는 같은 모델로 다시 받아도 같다 → 다음 모델

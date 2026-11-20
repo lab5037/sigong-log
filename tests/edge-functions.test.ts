@@ -188,6 +188,16 @@ Deno.test('polish: AI 상투어 변형이 섞이면 초안으로 폴백한다', 
   assert(acceptPolished('blog', draft, draft).ok);
 });
 
+Deno.test('polish: 동네 이름이 3~7회를 벗어나면 초안으로 폴백한다', () => {
+  const line = '송파구 잠실 엘스 줄눈 시공 현장입니다. ';
+  const filler = '본문 내용입니다. '.repeat(60);
+  const draft = '■ 현장 요약\n' + line.repeat(5) + filler + '\n[사진 : 창틀 · 시공 전]';
+  const tooMany = '■ 현장 요약\n' + line.repeat(9) + filler + '\n[사진 : 창틀 · 시공 전]';
+  assertEquals(acceptPolished('blog', tooMany, draft, '송파구').reason, 'keyword_count');
+  assertEquals(acceptPolished('blog', draft, draft, '송파구').ok, true);
+  assertEquals(acceptPolished('blog', tooMany, tooMany, '송파구').ok, true, '초안부터 범위를 벗어나면 막지 않는다');
+  });
+
 Deno.test('engine.ts: 블로그 원고에 SEO 섹션·1,500자·제목 앞배치', () => {
   const r = generate({
     industryId: 'grout',

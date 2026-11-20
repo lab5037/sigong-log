@@ -22,7 +22,7 @@
 // 원고 생성 로직(engine.ts)은 이 서버에만 있고, 브라우저에는 배포되지 않는다.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { CHANNELS, INDUSTRIES, STYLE_LABEL, generate } from './engine.ts';
+import { CHANNELS, INDUSTRIES, STYLE_LABEL, generate, parsePlace } from './engine.ts';
 import { type GenerateInput, parseGenerateInput } from './input.ts';
 import { modelChain, polishDraft, type PolishPhoto } from './polish.ts';
 import { json, logInternal, preflight, readJson } from '../_shared/http.ts';
@@ -64,6 +64,7 @@ async function polishPosts(input: GenerateInput, posts: Record<string, Post>): P
   }
 
   const tone = STYLE_LABEL[input.business.style as keyof typeof STYLE_LABEL] || STYLE_LABEL.haeyo;
+  const region = String(parsePlace(input.place).region || '');
   const models = modelChain(GEMINI_MODEL);
   const results = await Promise.all(CHANNELS.map(async (ch) => {
     const draft = String(posts[ch.id]?.body || '');
@@ -76,6 +77,7 @@ async function polishPosts(input: GenerateInput, posts: Record<string, Post>): P
       apiKey: GEMINI_KEY,
       models,
       timeoutMs: 18000,
+      region,
     });
     return r.ok
       ? { id: ch.id, ok: true as const, reason: '', body: r.body, model: r.model }
