@@ -5,6 +5,7 @@
 import { assertEquals, assert } from 'jsr:@std/assert@1';
 import { cleanImage, parseGenerateInput } from '../supabase/functions/generate-post/input.ts';
 import { acceptPolished, buildPrompt, collapseMarkers, modelChain, restoreMarkers, stripPhotoArrows } from '../supabase/functions/generate-post/polish.ts';
+import { buildAnalysisPrompt, describeAnalysis, parseAnalysis, usableAnalysis, type SiteAnalysis } from '../supabase/functions/generate-post/analyze.ts';
 import { generate, sanitize } from '../supabase/functions/generate-post/engine.ts';
 import { decideSpam, isPhoneLike, nowKst, parseLead, telegramText } from '../supabase/functions/submit-lead/lead.ts';
 
@@ -259,4 +260,166 @@ Deno.test('polish: 반복된 사진 위치 줄은 하나만 남긴다', () => {
   assertEquals((out.match(/^→ /gm) || []).length, 2);
   assert(out.includes('→ 곰팡이.') && out.includes('→ 마감.'));
   assertEquals(out.includes('→ 물때.'), false);
+});
+
+/* ── 1단계: 사진 정밀 분석 ───────────────────────────────────────── */
+
+Deno.test('analyze: 사진이 없으면 진단 프롬프트에 시공 후 결과를 쓰지 말라고 넣는다', () => {
+  const p = buildAnalysisPrompt({ industry: '욕실 줄눈·탄성코트', detail: '욕실 줄눈 곰팡이', slots: ['before'] });
+  assert(p.includes('시공 전 사진'));
+  assert(p.includes('시공 후 사진이 없다'), p);
+  assert(p.includes('완료·해결·깨끗해졌다는 표현과 결과 묘사를 쓰지 않는다'));
+  assert(p.includes('업종: 욕실 줄눈·탄성코트'));
+  assert(p.includes('사장님이 적어 준 증상: 욕실 줄눈 곰팡이'));
+  assert(p.includes('"observed"') && p.includes('"keyPoints"') && p.includes('"summary"'));
+  assert(p.includes('개수·면적·비율·기간을 세지 않는다'));
+});
+
+Deno.test('analyze: 시공 후 사진이 있으면 결과 묘사를 허용한다', () => {
+  const p = buildAnalysisPrompt({ slots: ['before', 'after'] });
+  assert(p.includes('시공 전 사진, 시공 후 사진'));
+  assert(p.includes('시공 후 사진이 있다'));
+  assertEquals(p.includes('시공 후 사진이 없다'), false);
+});
+
+Deno.test('analyze: JSON 응답을 진단 객체로 파싱한다(코드블록·설명 섞임)', () => {
+  const raw = '```json\n' + JSON.stringify({
+    observed: ['욕실 바닥 줄눈에 검은 곰팡이가 번짐', '샤워기 쪽 줄눈이 벌어짐', '욕실 바닥 줄눈에 검은 곰팡이가 번짐'],
+    locations: ['욕실 바닥 줄눈', '샤워기 주변 줄눈'],
+    causes: ['물이 고인 채 마른 탓으로 보임'],
+    keyPoints: ['줄눈 깊이까지 긁어내고 건조 후 채움'],
+    limits: ['타일 아래 누수는 사진으로 확인 안 됨'],
+    summary: '욕실 바닥 줄눈에 곰팡이가 번져 있습니다. 샤워기 쪽 줄눈은 벌어져 있습니다.',
+  }) + '\n```';
+  const a = parseAnalysis(raw);
+  assert(!!a);
+  if (a) {
+    assertEquals(a.observed.length, 2, '중복 문구는 한 번만');
+    assertEquals(a.locations[1], '샤워기 주변 줄눈');
+    assertEquals(a.summary, '욕실 바닥 줄눈에 곰팡이가 번져 있습니다. 샤워기 쪽 줄눈은 벌어져 있습니다.');
+    assert(usableAnalysis(a));
+  }
+});
+
+Deno.test('analyze: 항목 수·길이를 제한하고 줄표·이모지를 지운다', () => {
+  const a = parseAnalysis(JSON.stringify({
+    observed: ['가'.repeat(80), '둘', '둘', '셋', '넷', '다섯', '여섯', '일곱'],
+    locations: [], causes: [], keyPoints: ['줄눈 — 깊게 긁기 😀'], limits: [],
+    summary: '첫 문장입니다. 둘째 문장입니다. 셋째 문장은 버립니다.',
+  }));
+  assert(!!a);
+  if (a) {
+    assertEquals(a.observed.length, 6, 'observed 최대 6개');
+    assertEquals(a.observed[1], '둘');
+    assertEquals(a.observed[2], '셋', '중복 제거');
+    assert(a.observed[0].length <= 48, '항목 길이 제한: ' + a.observed[0].length);
+    assertEquals(a.summary, '첫 문장입니다. 둘째 문장입니다.', '요약은 두 문장까지');
+    assert(!/[\u{1F000}-\u{1FAFF}]/u.test(a.keyPoints[0]), '이모지 제거');
+    assert(!/[\u2014\u2013]/.test(a.keyPoints[0]), '줄표 제거: ' + a.keyPoints[0]);
+  }
+});
+
+Deno.test('analyze: 형식이 깨진 응답은 null(폴백 신호)', () => {
+  assertEquals(parseAnalysis(''), null);
+  assertEquals(parseAnalysis('JSON 아님'), null);
+  assertEquals(parseAnalysis('{"observed": '), null);
+  assertEquals(parseAnalysis('{}'), null);
+  assertEquals(parseAnalysis('{"observed": [], "keyPoints": [], "summary": ""}'), null);
+});
+
+Deno.test('analyze: 요약이 비면 관찰에서 만든다', () => {
+  const a = parseAnalysis(JSON.stringify({ observed: ['창틀 먼지가 두껍게 앉음'], summary: '' }));
+  assert(!!a);
+  if (a) assertEquals(a.summary, '창틀 먼지가 두껍게 앉음');
+});
+
+Deno.test('analyze: 진단 요약 블록에 항목 이름이 들어간다', () => {
+  const a: SiteAnalysis = {
+    observed: ['욕실 바닥 줄눈 곰팡이'], locations: ['욕실 바닥'], causes: ['물 고임으로 보임'],
+    keyPoints: ['건조 후 줄눈재 채움'], limits: [], summary: '욕실 바닥 줄눈에 곰팡이가 있습니다.', photoSlots: ['before'],
+  };
+  const text = describeAnalysis(a);
+  assert(text.includes('· 보이는 상태 : 욕실 바닥 줄눈 곰팡이'));
+  assert(text.includes('· 추정 원인 : 물 고임으로 보임'));
+  assert(text.includes('· 요약 : 욕실 바닥 줄눈에 곰팡이가 있습니다.'));
+  assertEquals(describeAnalysis(null), '');
+});
+
+/* ── 2단계: 진단을 넣은 다듬기 프롬프트 ─────────────────────────── */
+
+const ANALYSIS: SiteAnalysis = {
+  observed: ['욕실 바닥 줄눈에 검은 곰팡이가 번짐', '샤워기 쪽 줄눈이 벌어짐'],
+  locations: ['욕실 바닥 줄눈'],
+  causes: ['물이 고인 채 마른 탓으로 보임'],
+  keyPoints: ['줄눈 깊이까지 긁어내고 건조'],
+  limits: [],
+  summary: '욕실 바닥 줄눈에 곰팡이가 번져 있습니다.',
+  photoSlots: ['before'],
+};
+
+Deno.test('polish: 사진 분석이 있으면 진단을 프롬프트에 넣고 사진 첨부 문구는 쓰지 않는다', () => {
+  const p = buildPrompt({ channel: 'blog', draft: '■ 현장 요약\n[사진 : 욕실 · 시공 전]\n본문', tone: '친근한 해요체', photos: [], analysis: ANALYSIS });
+  assert(p.includes('─ 사진 분석 ─'));
+  assert(p.includes('검은 곰팡이가 번짐'));
+  assert(p.includes('[사진 분석]에 적힌 것만 쓴다'));
+  assert(p.includes('■ 작업 전 상태 목록에 [사진 분석]에서 확인된 상태를 1~2줄'));
+  assert(p.includes('시공 후 사진이 없다'), '애프터 사진이 없으면 결과 묘사를 막는다');
+  assert(p.includes('─ 초안 ─'));
+  assertEquals(p.includes('사진은 첨부되지 않았다'), false);
+  assertEquals(p.includes('첨부한 현장 사진을 실제로 보고'), false);
+});
+
+Deno.test('polish: 시공 후 사진까지 분석했으면 결과 표현을 막지 않는다', () => {
+  const withAfter: SiteAnalysis = { ...ANALYSIS, photoSlots: ['before', 'after'] };
+  const p = buildPrompt({ channel: 'blog', draft: '초안', tone: '친근한 해요체', photos: [], analysis: withAfter });
+  assertEquals(p.includes('시공 후 사진이 없다'), false);
+  assert(p.includes('─ 사진 분석 ─'));
+});
+
+Deno.test('polish: 블로그가 아닌 채널에는 짧은 형식으로 진단을 넣는다', () => {
+  const p = buildPrompt({ channel: 'insta', draft: '인스타 초안', tone: '친근한 해요체', photos: [], analysis: ANALYSIS });
+  assert(p.includes('첫 두 문단 안에 이 현장의 상태로 녹인다'));
+  assertEquals(p.includes('■ 작업 전 상태 목록에'), false);
+});
+
+Deno.test('polish: 분석이 없으면 예전 프롬프트 그대로다', () => {
+  const noPhoto = buildPrompt({ channel: 'blog', draft: '초안', tone: '친근한 해요체', photos: [] });
+  assert(noPhoto.includes('사진은 첨부되지 않았다'));
+  assertEquals(noPhoto.includes('─ 사진 분석 ─'), false);
+  const withPhoto = buildPrompt({
+    channel: 'blog', draft: '초안', tone: '친근한 해요체',
+    photos: [{ slot: 'before', mime: 'image/jpeg', data: 'x' }],
+  });
+  assert(withPhoto.includes('첨부한 현장 사진'));
+  assertEquals(withPhoto.includes('─ 사진 분석 ─'), false);
+});
+
+Deno.test('engine.ts: 비포 사진 한 장이면 그 사진 자리 하나만 만든다', () => {
+  const r = generate({
+    industryId: 'grout', place: '송파구 잠실 엘스 34평', detail: '욕실 줄눈 곰팡이',
+    business: { name: 'OO클린', contact: '010-0000-0000', style: 'haeyo', closing: '감사합니다' },
+    photos: { before: true, during: false, after: false }, seed: 7,
+  });
+  const marks = r.body.match(/\[사진 : /g) || [];
+  assertEquals(marks.length, 1, '없는 애프터 사진 자리를 만들지 않는다');
+  assert(r.body.includes('[사진 : 송파구 잠실 엘스 현장 전경 · 시공 전]'), r.body.slice(0, 200));
+  assert(!/시공 후\]/.test(r.body), '시공 후 자리 없음');
+});
+
+Deno.test('engine.ts: 작업 중 사진만 있어도 사진 자리가 하나 생긴다', () => {
+  const r = generate({
+    industryId: 'grout', place: '송파구 34평', detail: '욕실 줄눈',
+    business: { style: 'haeyo' },
+    photos: { before: false, during: true, after: false }, seed: 3,
+  });
+  assertEquals((r.body.match(/\[사진 : /g) || []).length, 1);
+  assert(r.body.includes('작업 중]'));
+});
+
+Deno.test('engine.ts: 애프터 사진이 있으면 공정별 사진 자리가 4곳 이상 생긴다', () => {
+  const r = generate({
+    industryId: 'grout', place: '송파구 34평', detail: '욕실 줄눈', business: { style: 'haeyo' },
+    photos: { before: true, during: true, after: true }, seed: 5,
+  });
+  assert((r.body.match(/\[사진 : /g) || []).length >= 4, String((r.body.match(/\[사진 : /g) || []).length));
 });

@@ -1080,7 +1080,7 @@
     setGenBusy(true);
     try {
       const input = collectInput();
-      if (hasPhoto()) toast('사진을 읽고 문장을 다듬고 있어요 (10초 안팎)');
+      if (hasPhoto()) toast('사진을 분석하고 글을 쓰고 있어요 (20초 안팎)');
       input.images = await collectImages();
       const res = await requestPosts(input);
       if (!res.ok) { handleGenError(res); return; }
@@ -1153,6 +1153,25 @@
     $('#seoCard').hidden = r.seoKeywords.length === 0;
     $('#seoList').innerHTML = r.seoKeywords.map(function (t) { return '<span>' + escapeHtml(t) + '</span>'; }).join('');
 
+    // AI 사진 분석 요약 — 사진을 실제로 읽었다는 걸 결과 화면에서 바로 보이게 한다
+    const analysisText = (!state.lastDemo && state.ai && state.ai.analysis) ? String(state.ai.analysis) : '';
+    const analysisRow = $('#analysisRow');
+    if (analysisRow) {
+      analysisRow.hidden = !analysisText;
+      $('#analysisText').textContent = analysisText;
+    }
+
+    // 비교 카드 안내 — 시공 후 사진이 없으면 '시공 전 기록' 단독 카드가 된다
+    const withAfter = !!(state.photos.before && state.photos.after);
+    const compareSub = $('#compareCardSub');
+    if (compareSub) {
+      compareSub.textContent = withAfter
+        ? '1080×1080 · 블로그·인스타 공용'
+        : (hasPhoto() ? '1080×1080 · 현장 진단 카드' : '1080×1080 · 사진을 올리면 만들어집니다');
+    }
+    const layoutBtn = $('#layoutBtn');
+    if (layoutBtn) layoutBtn.hidden = !withAfter;
+
     $('#aiHint').textContent = aiHintText(ch);
     state.editingBody = false;
     paintChannel();
@@ -1181,6 +1200,9 @@
     const photos = (body.match(/\[사진\s*:/g) || []).length;
     const hits = countIn(body, region);
     const tags = (r.hashtags || []).length;
+    // 올린 사진 수에 맞춰 사진 자리 기준을 잡는다(한 장만 올려도 합리적으로 검사).
+    const uploaded = ['before', 'during', 'after'].filter(function (s) { return !!state.photos[s]; }).length;
+    const photoGoal = uploaded ? Math.min(SEO_RULE.photoMin, uploaded) : SEO_RULE.photoMin;
 
     // 1·2안이 지역 + 업종으로 시작하는지(제목 앞배치)
     const front = titles.slice(0, 2).map(function (t) {
@@ -1188,7 +1210,7 @@
     });
     const frontOk = front.length > 0 && front.every(Boolean);
     const lenOk = len >= SEO_RULE.bodyMin && len <= SEO_RULE.bodyMax;
-    const photoOk = photos >= SEO_RULE.photoMin;
+    const photoOk = photos >= photoGoal;
     const keyOk = hits >= SEO_RULE.keywordMin && hits <= SEO_RULE.keywordMax;
     const tagOk = tags <= SEO_RULE.tagMax;
 
@@ -1215,9 +1237,13 @@
         ok: photoOk,
         name: '사진 삽입 자리',
         value: photos + '곳',
-        desc: photos
-          ? '본문에 [사진 : ...] 자리가 ' + photos + '곳 들어갔습니다'
-          : '사진을 올리면 자리가 4곳 이상 생깁니다'
+        desc: !photos
+          ? '사진을 올리면 자리가 4곳 이상 생깁니다'
+          : (photoOk
+            ? (uploaded > 0 && uploaded < SEO_RULE.photoMin
+              ? '올린 사진 ' + uploaded + '장에 맞춰 ' + photos + '곳을 잠았습니다'
+              : '본문에 [사진 : ...] 자리가 ' + photos + '곳 들어갔습니다')
+            : '지금 사진 ' + uploaded + '장 기준으로 ' + photoGoal + '곳이 필요합니다')
       },
       {
         ok: keyOk,
@@ -1264,8 +1290,13 @@
   function aiHintText(ch) {
     if (state.lastDemo) return '예시 원고예요. 실제 현장으로 만들면 사진 속 상태까지 읽어 다듬습니다.';
     const ai = state.ai;
-    if (ai && ai.channels && ai.channels[ch.id] === 'ai') {
-      return '사진 속 상태를 읽어 ' + ch.label + ' 형식으로 다듬었어요. 마음에 안 들면 [다른 표현으로]를 눌러 다시 만드세요.';
+    const usedAi = !!(ai && ai.channels && ai.channels[ch.id] === 'ai');
+    if (usedAi) {
+      return (ai.analysis ? '사진을 분석한 내용을 바탕으로 ' : '사진 속 상태를 읽어 ') +
+        ch.label + ' 형식으로 다듬었어요. 마음에 안 들면 [다른 표현으로]를 눌러 다시 만드세요.';
+    }
+    if (ai && ai.analysis) {
+      return '사진은 분석했지만 이 채널 문장은 기본 원고로 나갔어요. [다른 표현으로]를 눌러 다시 만들어 보세요.';
     }
     if (ai && (ai.reason === 'no_photos' || !hasPhoto())) {
       return '사진을 올리면 사진 속 상태까지 읽어 문장을 다듬어 드려요.';

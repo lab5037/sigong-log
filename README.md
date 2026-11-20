@@ -20,17 +20,20 @@
 | `demo-result.js` | 비로그인 [예시로 바로 체험하기]에 쓰는 **고정 예시 결과** (가상 데이터) |
 | `engine.js` | 원고 엔진 원본 — **테스트와 서버 사본 동기화 기준**일 뿐, 페이지가 불러오지 않습니다 |
 | `assets/demo-before.jpg` 등 | 랜딩 예시·예시 체험에 쓰는 실제 현장 사진 3장 (810×1080, JPEG) |
-| `canvas.js` | 비포/애프터 1080×1080 카드 합성, 예시 사진 생성 |
+| `canvas.js` | 비포/애프터 1080×1080 카드 합성(시공 후 사진이 없으면 '현장 진단 · 시공 전 기록' 단독 카드), 예시 사진 생성 |
 | `app.js` | 화면 로직, 사진 리사이즈, 로그인, 서버 원고 요청(사진 함께 전송), 신청 폼 |
 | `supabase/schema.sql` | Supabase 테이블(profiles·generation_logs·leads) + RLS + 횟수 차감 RPC |
-| `supabase/functions/generate-post/` | **원고 생성 Edge Function** (engine.ts 서버 사본 + 입력 검증) |
+| `supabase/functions/generate-post/` | **원고 생성 Edge Function** (입력 검증 `input.ts` · 엔진 서버 사본 `engine.ts` · 사진 분석 `analyze.ts` · 다듬기 `polish.ts` · 두 단계 파이프라인 `compose.ts`) |
 | `supabase/functions/submit-lead/` | **신청 접수 Edge Function** (검증·스팸 방지 → leads 저장 → 텔레그램 알림) |
 | `supabase/functions/_shared/http.ts` | CORS·JSON 응답 공통 도우미 |
 | `gas/sigong_notify_template.gs` | 예전 GAS 알림 템플릿 (현재 미사용 · 참고용) |
 | `tests/engine.test.mjs` | 엔진 테스트 (`node tests/engine.test.mjs`) |
 | `tests/engine-parity.test.mjs` | `engine.js` ↔ `engine.ts` CORE 본문 일치 + 프론트에 생성기가 없는지 검사 |
 | `tests/catalog.test.mjs` | `catalog.js`·`demo-result.js` 가 엔진 데이터와 일치하는지 검사 |
-| `tests/edge-functions.test.ts` | Edge Function 검증·텔레그램 문구·스팸 판정 테스트 (`deno test`) |
+| `tests/edge-functions.test.ts` | Edge Function 검증·사진 분석 파싱·프롬프트·텔레그램 문구·스팸 판정 테스트 (`deno test`) |
+| `tests/pipeline.test.ts` | 사진 분석 1회 → 4채널 다듬기 → 폴백 흐름 테스트, 가짜 fetch (`deno test`) |
+| `tests/canvas.test.mjs` | 비교 카드 합성 테스트 — 사진 1장·2장·0장 모두 확인 (`node`) |
+| `tests/generate-flow.test.mjs` | 가짜 Supabase로 비포 1장 생성 → AI 사진 분석 표시 → 현장 진단 카드 확인 (`node`) |
 
 ## 회원가입 · 무료 체험 잠금 (Supabase)
 
@@ -85,15 +88,23 @@
 
 ## 선택 기능
 
-### 1) AI 문장 다듬기 (서버 내장 · 키 입력 없음)
+### 1) 사진 정밀 분석 → 분석 기반 원고 (서버 내장 · 키 입력 없음)
 
 - Gemini 호출은 `generate-post` Edge Function이 서버에서 합니다. 키는 Supabase Secrets의
   `GEMINI_API_KEY` 하나뿐이고, 브라우저에는 어떤 키도 내려가지 않습니다(입력칸 없음).
-- 사진을 올리면 브라우저에서 1024px JPEG base64로 줄여 원고 요청에 함께 보내고,
-  서버가 사진을 그대로 Gemini에 넘겨 사진에서 보이는 오염·시공 전후 상태를 본문과
-  사진 설명(`→ ...`)에 반영합니다. 사진이 없으면 문장만 다듬습니다.
+- 사진을 올리면 브라우저에서 1024px JPEG base64로 줄여 원고 요청에 함께 보냅니다. 서버는 두 단계로 처리합니다.
+  1. **사진 정밀 분석 (1회, `analyze.ts`)** — `gemini-3.1-flash-lite`가 올린 사진(1~3장)을 한 번에 읽어
+     `보이는 상태 · 부위·재질 · 추정 원인 · 시공 시 핵심 · 확인 어려움 · 요약`으로 된 JSON 진단을 뽑습니다.
+  2. **분석 기반 원고 (`polish.ts`)** — 그 진단을 4채널 프롬프트에 넣어 `■ 작업 전 상태` 목록, 원인 설명,
+     사후 관리 팁을 이 현장에 맞게 씁니다. 분석이 끝난 뒤에는 사진을 다시 보내지 않습니다(토큰 절약).
+- **비포 사진 1장만** 올려도 정상적으로 생성됩니다. 시공 후 사진이 없으면
+  · 사진 분석이 "완료·해결·깨끗해짐"을 쓰지 않고,
+  · 원고 프롬프트도 "사진으로 결과를 확인했다"는 표현을 막으며,
+  · 본문에는 없는 시공 후 사진 자리를 만들지 않습니다.
+- 결과 화면에는 `AI 사진 분석: ...`(1~2문장)이 표시됩니다 — 사진을 실제로 읽었다는 걸 사장님이 바로 보게 하려는 것입니다.
 - 다듬기는 4채널을 한 번에 처리하고, 1건 생성에 1회로만 차감합니다(채널 전환은 무료).
-- 호출이 실패·시간 초과되거나 형식이 어긋나면 **규칙 기반 원고 그대로** 나갑니다(폴백).
+- 호출이 실패·시간 초과·형식 이탈이면 **규칙 기반 원고 그대로** 나갑니다(폴백).
+  분석이 실패하면 사진을 다듬기 요청에 직접 실어 보내는 예전 방식으로 돌아갑니다.
 - 서버 Secrets로 조정: `GEMINI_MODEL`(기본 `gemini-3.1-flash-lite` → `gemini-3.8-flash` 순서로 시도),
   `GEMINI_POLISH`=`always`(기본) | `photos`(사진이 있을 때만) | `off`(규칙 기반만).
 - 서버는 받은 사진을 저장하지 않고 요청 처리 중에만 Gemini로 넘깁니다.
@@ -108,7 +119,7 @@
   왜 그렇게 하는지 한 단락 → `셀프로 확인할 포인트` → 견적 → 마무리 순서로, 사진 3장 기준 **1,500~1,750자**가 나옵니다.
   지역 키워드는 본문에 3~7회 자연스럽게 분산됩니다(도배 금지).
 - **결과 화면 체크리스트**: 블로그 결과에서 방금 만든 원고를 그대로 세어 5항목을 카드로 보여 줍니다.
-  ① 제목 1·2안 앞배치 ② 본문 분량(1,500~3,500자, 공백 포함) ③ `[사진 : ...]` 자리 4곳 이상
+  ① 제목 1·2안 앞배치 ② 본문 분량(1,500~3,500자, 공백 포함) ③ `[사진 : ...]` 자리 4곳 이상(올린 사진이 3장보다 적으면 그 장수에 맞춰 기준을 낮춥니다)
   ④ 지역 키워드 3~7회 ⑤ 해시태그 5개 이하. 비로그인 [예시로 바로 체험하기]에서도 같은 카드가 보입니다.
   본문을 [수정하기]로 고치면 목록과 점수를 다시 계산합니다.
 - **AI 다듬기**: Gemini 프롬프트에 "첫 문단에서 지역·업종 키워드를 빼지 않는다, 3~7회 안에서 분산한다,
@@ -162,13 +173,17 @@ node --check engine.js && node --check catalog.js && node --check demo-result.js
 node tests/engine.test.mjs
 node tests/engine-parity.test.mjs
 node tests/catalog.test.mjs
-deno test tests/edge-functions.test.ts
+node tests/canvas.test.mjs
+node tests/ui-smoke.test.mjs
+node tests/generate-flow.test.mjs
+deno test -A tests/edge-functions.test.ts
+deno test -A tests/pipeline.test.ts
 ```
 
 ## 개인정보
 
-- 원고 생성과 AI 다듬기는 서버(Supabase Edge Function)에서 처리합니다. 비포·애프터 카드는 브라우저에서
-  사진을 합성해 만들고, AI 다듬기를 쓸 때만 사진(1024px JPEG)이 서버를 거쳐 Google Gemini로 전달됩니다.
+- 원고 생성과 사진 분석은 서버(Supabase Edge Function)에서 처리합니다. 비포·애프터 카드는 브라우저에서
+  사진을 합성해 만들고, 사진을 분석하고 글을 쓸 때만 사진(1024px JPEG)이 서버를 거쳐 Google Gemini로 전달됩니다.
   서버는 사진을 저장하지 않습니다.
 - 이메일·비밀번호는 Supabase 인증에 저장되고 비밀번호는 앱에서 볼 수 없습니다.
   체험 횟수·요금제·업체 정보만 `profiles`에, 생성 이력은 `generation_logs`에 저장되며 행 단위 보안(RLS)으로 본인 것만 읽습니다.

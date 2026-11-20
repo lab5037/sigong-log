@@ -9,10 +9,13 @@
 //   1) 입력 검증(화이트리스트·길이 제한)
 //   2) Authorization 헤더의 JWT를 auth.getUser()로 검증 → 사용자 확인
 //   3) consume_generation_for_user RPC(service_role 전용)로 잔여 횟수 원자 차감
-//   4) allowed === true 일 때만 원고 생성(4채널 전부) 후 반환
+//   4) allowed === true 일 때만
+//      (a) 사진이 있으면 사진 정밀 분석 1회(analyze.ts) → 구조화된 현장 진단
+//      (b) 규칙 기반 초안 4채널 생성(engine.ts)
+//      (c) 진단을 넣은 프롬프트로 채널별 다듬기(polish.ts) — 실패하면 초안 그대로
 //
 // 응답
-//   200 { ok:true, quota:{plan,used,limit}, posts:{blog,danggeun,insta,threads} }
+//   200 { ok:true, quota:{plan,used,limit}, ai:{used,channels,analysis,...}, posts:{blog,danggeun,insta,threads} }
 //   400 { ok:false, reason:'invalid_input', field }
 //   401 { ok:false, reason:'not_authenticated' }
 //   402 { ok:false, reason:'trial_exhausted'|'monthly_limit', plan, used, limit }
@@ -22,9 +25,9 @@
 // 원고 생성 로직(engine.ts)은 이 서버에만 있고, 브라우저에는 배포되지 않는다.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { CHANNELS, INDUSTRIES, STYLE_LABEL, generate, parsePlace } from './engine.ts';
-import { type GenerateInput, parseGenerateInput } from './input.ts';
-import { modelChain, polishDraft, type PolishPhoto } from './polish.ts';
+import { CHANNELS, INDUSTRIES, generate } from './engine.ts';
+import { parseGenerateInput } from './input.ts';
+import { writePosts } from './compose.ts';
 import { json, logInternal, preflight, readJson } from '../_shared/http.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
@@ -40,67 +43,6 @@ const POLISH_MODE = (Deno.env.get('GEMINI_POLISH') || 'always').toLowerCase();
 const MAX_BODY_CHARS = 2500000;
 
 type Post = { body?: string; [key: string]: unknown };
-
-type PolishSummary = {
-  used: boolean;
-  reason: string;
-  model: string | null;
-  channels: Record<string, 'ai' | 'draft'>;
-};
-
-/** 생성된 원고 4채널을 Gemini로 다듬는다. 실패한 채널은 규칙 기반 원고를 그대로 둔다. */
-async function polishPosts(input: GenerateInput, posts: Record<string, Post>): Promise<PolishSummary> {
-  const photos: PolishPhoto[] = (['before', 'during', 'after'] as const)
-    .filter((slot) => !!input.images[slot])
-    .map((slot) => ({ slot, mime: 'image/jpeg', data: input.images[slot] }));
-
-  const channels: Record<string, 'ai' | 'draft'> = {};
-  for (const ch of CHANNELS) channels[ch.id] = 'draft';
-
-  if (!GEMINI_KEY) return { used: false, reason: 'no_key', model: null, channels };
-  if (POLISH_MODE === 'off') return { used: false, reason: 'mode_off', model: null, channels };
-  if (POLISH_MODE === 'photos' && photos.length === 0) {
-    return { used: false, reason: 'no_photos', model: null, channels };
-  }
-
-  const tone = STYLE_LABEL[input.business.style as keyof typeof STYLE_LABEL] || STYLE_LABEL.haeyo;
-  const region = String(parsePlace(input.place).region || '');
-  const models = modelChain(GEMINI_MODEL);
-  const results = await Promise.all(CHANNELS.map(async (ch) => {
-    const draft = String(posts[ch.id]?.body || '');
-    if (!draft) return { id: ch.id, ok: false as const, reason: 'empty_draft', body: '', model: '' };
-    const r = await polishDraft({
-      channel: ch.id,
-      draft,
-      tone,
-      photos,
-      apiKey: GEMINI_KEY,
-      models,
-      timeoutMs: 18000,
-      region,
-    });
-    return r.ok
-      ? { id: ch.id, ok: true as const, reason: '', body: r.body, model: r.model }
-      : { id: ch.id, ok: false as const, reason: r.reason, body: '', model: '' };
-  }));
-
-  let used = false;
-  let model: string | null = null;
-  const failed: string[] = [];
-  for (const r of results) {
-    if (r.ok) {
-      const post = posts[r.id];
-      if (post) post.body = r.body;
-      channels[r.id] = 'ai';
-      used = true;
-      model = model || r.model;
-    } else {
-      failed.push(r.id + ':' + r.reason);
-    }
-  }
-  if (failed.length) console.error('[fieldlog] polish fallback', failed.join(','));
-  return { used, reason: used ? 'ok' : 'fallback', model, channels };
-}
 
 function industryLabel(id: string): string {
   const hit = INDUSTRIES.find((i) => i.id === id);
@@ -191,7 +133,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
   const quotaUsed = q;
 
-  // 3) 원고 생성 — 채널 4종을 한 번에 만들어 1건으로 차감한다(채널 전환은 무료).
+  // 3) 규칙 기반 초안 4채널 — 채널 4종을 한 번에 만들어 1건으로 차감한다(채널 전환은 무료).
   const posts: Record<string, Post> = {};
   try {
     for (const ch of CHANNELS) {
@@ -202,8 +144,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return json(req, { ok: false, reason: 'server_error' }, 500);
   }
 
-  // 4) 서버 측 Gemini 다듬기 — 실패·시간 초과면 위 규칙 기반 원고가 그대로 나간다.
-  const ai = await polishPosts(input, posts);
+  // 4) 사진 정밀 분석(1회) → 분석을 넣은 프롬프트로 채널별 다듬기.
+  //    분석·다듬기가 실패하거나 시간 초과면 위 규칙 기반 원고가 그대로 나간다.
+  const ai = await writePosts(input, posts, {
+    apiKey: GEMINI_KEY,
+    model: GEMINI_MODEL,
+    mode: POLISH_MODE,
+  });
 
   return json(req, {
     ok: true,

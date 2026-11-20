@@ -730,6 +730,12 @@
     lines.push(open.replace('{place}', ctx.placeLabel));
 
     if (ctx.photos.before) lines.push(markerLine(ctx.placeLabel + ' 현장 전경', '시공 전'));
+    // 시공 전 사진이 없고 작업 중 사진만 있으면 그 사진 자리를 하나 남긴다(없는 사진을 지어내지 않는다).
+    else if (ctx.photos.during && !ctx.photos.after) lines.push(markerLine(ctx.placeLabel + ' 현장 전경', '작업 중'));
+    // 시공 후 사진이 없으면 공정별 사진 자리는 만들지 않는다. 올린 사진 수만큼 전경 자리만 남긴다.
+    if (!ctx.photos.after && ctx.photos.before && ctx.photos.during) {
+      lines.push(markerLine(ctx.placeLabel + ' 작업 모습', '작업 중'));
+    }
 
     if (ctx.extra && ctx.industry.extra) {
       lines.push({

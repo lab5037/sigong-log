@@ -101,6 +101,8 @@
 
   /**
    * 비포·애프터 비교 카드 생성
+   * · 시공 전·후가 모두 있으면 2분할 카드
+   * · 시공 후 사진이 없으면 '현장 진단 · 시공 전 기록' 단독 카드(깨지지 않는다)
    * @param {object} o {before:dataURL, after:dataURL, during:dataURL, layout:'h'|'v', place, industryLabel, businessName}
    * @returns {Promise<HTMLCanvasElement>}
    */
@@ -114,11 +116,14 @@
     ctx.fillStyle = '#0f1b2a';
     ctx.fillRect(0, 0, SIZE, SIZE);
 
-    const hasBefore = !!o.before;
-    const hasAfter = !!o.after;
+    const before = o.before || '';
+    const during = o.during || '';
+    const after = o.after || '';
+    const hasBefore = !!before;
+    const hasAfter = !!after;
     const layout = o.layout === 'v' ? 'v' : 'h';
 
-    if (!hasBefore && !hasAfter) {
+    if (!hasBefore && !hasAfter && !during) {
       // 사진이 없으면 안내 카드
       ctx.fillStyle = '#1b2b3f';
       ctx.fillRect(0, 0, SIZE, SIZE);
@@ -134,8 +139,8 @@
     const gap = 10;
 
     if (hasBefore && hasAfter) {
-      const beforeImg = await loadImage(o.before);
-      const afterImg = await loadImage(o.after);
+      const beforeImg = await loadImage(before);
+      const afterImg = await loadImage(after);
 
       if (layout === 'h') {
         const half = (SIZE - gap) / 2;
@@ -156,10 +161,13 @@
       }
       drawBanner(ctx, o);
     } else {
-      const src = hasAfter ? o.after : o.before;
-      const img = await loadImage(src);
+      // 애프터 사진이 없을 때: 있는 사진 한 장으로 단독 카드
+      const single = hasAfter ? { src: after, label: 'AFTER', accent: true }
+        : hasBefore ? { src: before, label: '현장 진단 · 시공 전 기록', accent: false }
+          : { src: during, label: '작업 중', accent: false };
+      const img = await loadImage(single.src);
       drawCover(ctx, img, 0, 0, SIZE, SIZE);
-      drawBadge(ctx, hasAfter ? 'AFTER' : 'BEFORE', 28, 28, hasAfter);
+      drawBadge(ctx, single.label, 28, 28, single.accent);
       drawBanner(ctx, o);
     }
 

@@ -73,6 +73,9 @@ ok($$('.channel-chips').length >= 1 && $$('.channel-chips').every((b) => b.query
 ok($('#coIndustry').options.length === 7, '신청 폼 업종 옵션 7개(빈 값 포함)');
 ok(!$('#geminiKey'), 'Gemini API 키 입력칸이 화면에 없다');
 ok(!$('#aiBtn'), 'AI 다듬기 버튼이 화면에 없다(서버가 자동 처리)');
+ok(!!$('#analysisRow') && !!$('#analysisText'), 'AI 사진 분석 카드 DOM');
+ok($('#analysisRow').hidden, 'AI 사진 분석 카드는 처음에 숨김');
+ok(!!$('#compareCardSub'), '비교 카드 안내 문구 자리');
 
 // 예시로 바로 체험하기
 $('#sampleBtn').click();
@@ -115,6 +118,18 @@ $('#editBodyBtn').click();
 await sleep(40);
 ok($$('#seoRows .seo-row.is-warn').length >= 1, '본문 수정 시 체크리스트 경고로 바뀜');
 ok($('#seoScore').textContent !== '5/5', '점수도 다시 계산', $('#seoScore').textContent);
+
+// 시공 후 사진을 지우면 비교 카드가 '현장 진단' 단독 카드로 바뀐다
+const afterTile = $('.photo-tile[data-slot="after"]');
+afterTile.querySelector('.photo-del').click();
+await sleep(30);
+$$('.channel-chip').find((b) => b.getAttribute('data-channel') === 'insta').click();
+await sleep(60);
+$$('.channel-chip').find((b) => b.getAttribute('data-channel') === 'blog').click();
+await sleep(80);
+ok(($('#compareCardSub').textContent || '').includes('현장 진단 카드'), '애프터가 없으면 현장 진단 카드 안내', $('#compareCardSub').textContent);
+ok($('#layoutBtn').hidden, '한 장만 남으면 좌우/상하 버튼을 숨긴다');
+ok($('#analysisRow').hidden, '예시 결과에는 AI 사진 분석 카드가 없다');
 
 // 비로그인 상태에서 새 현장으로 [후기 만들기] → 로그인 요구(클라이언트 생성 없음)
 const ev = new window.Event('input', { bubbles: true });

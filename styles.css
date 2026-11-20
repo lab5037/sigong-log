@@ -484,6 +484,21 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .ai-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .ai-row .hint { margin: 0; }
 
+/* AI 사진 분석 요약 — 사진을 실제로 읽었다는 걸 바로 보이게 */
+.analysis-card {
+  margin-top: 12px; padding: 12px 14px;
+  background: var(--accent-soft); border: 1px solid #f6d7c2; border-radius: 12px;
+}
+.analysis-tag {
+  display: inline-block; margin-bottom: 6px;
+  font-size: 11.5px; font-weight: 700; letter-spacing: .02em;
+  color: var(--accent-dark); text-transform: uppercase;
+}
+.analysis-text {
+  margin: 0; font-size: 13.5px; line-height: 1.65; color: var(--ink-2);
+  word-break: keep-all;
+}
+
 .tag-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .tag-list span {
   background: var(--accent-soft); color: var(--accent-dark);

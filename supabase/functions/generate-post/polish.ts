@@ -6,6 +6,7 @@
 // · 결과는 engine.sanitize()를 거쳐 줄표·이모지·상투적 문구를 다시 지운 뒤 검사한다.
 
 import { getChannel, sanitize } from './engine.ts';
+import { describeAnalysis, type SiteAnalysis } from './analyze.ts';
 
 /** 다듬기 요청에 실리는 사진 (긴 변 1024px JPEG base64). */
 export interface PolishPhoto {
@@ -24,13 +25,17 @@ export interface PolishRequest {
   timeoutMs?: number;
   /** 동네 이름 — 다듬은 본문의 키워드 반복이 3~7회를 벗어나면 초안을 쓴다. */
   region?: string;
+  /** 1단계 사진 분석 결과. 있으면 사진을 다시 보내지 않고 이 진단을 근거로 쓴다. */
+  analysis?: SiteAnalysis | null;
+  /** 테스트에서 갈아끼우는 fetch(기본값은 전역 fetch) */
+  fetchImpl?: typeof fetch;
 }
 
 export type PolishResult =
   | { ok: true; body: string; model: string }
   | { ok: false; reason: string };
 
-const PHOTO_LABEL: Record<string, string> = {
+export const PHOTO_LABEL: Record<string, string> = {
   before: '시공 전 사진',
   during: '작업 중 사진',
   after: '시공 후 사진',
@@ -45,21 +50,60 @@ export function modelChain(envModel?: string): string[] {
   return list.filter((m, i) => list.indexOf(m) === i);
 }
 
-function photoRule(channel: string, withPhotos: boolean): string {
-  if (withPhotos) {
+function photoRule(withEvidence: boolean, analysis: SiteAnalysis | null): string {
+  if (analysis) {
+    return '2. 사진에서 확인된 상태는 [사진 분석]에 적힌 것만 쓴다. [사진 분석]에 없는 부위·오염·원인·완료 결과를 새로 만들지 않는다.';
+  }
+  if (withEvidence) {
     return '2. 첨부한 현장 사진(시공 전·작업 중·시공 후)을 실제로 보고, 사진에서 확인되는 상태만 묘사한다. 사진에 없으면 언급하지 않는다.';
   }
   return '2. 사진은 첨부되지 않았다. 초안에 있는 내용만 다듬고, 사진 묘사나 [사진 : ...] 줄을 새로 넣지 않는다.';
 }
 
-function channelRules(channel: string, tone: string, withPhotos: boolean): string[] {
+/** 분석에 시공 후 사진이 없으면 결과를 사진으로 확인했다는 표현을 막는다. */
+function noAfterRule(analysis: SiteAnalysis | null): string {
+  if (!analysis) return '';
+  const slots = analysis.photoSlots || [];
+  if (!slots.length || slots.indexOf('after') >= 0) return '';
+  return '2-2. 시공 후 사진이 없다. 사진으로 결과를 확인했다는 표현(사진에서 보시면, 사진으로 확인되듯, 사진 속 마감)을 쓰지 않고, 끝난 일은 초안에 적힌 작업 내용으로만 설명한다.';
+}
+
+function analysisRule(channel: string, analysis: SiteAnalysis | null): string[] {
+  if (!analysis) return [];
+  const ch = getChannel(channel);
+  const out = [
+    '2-1. [사진 분석]의 내용은 ① 이 현장의 상태를 설명하는 문장 ② 왜 그런 상태가 생겼는지 설명하는 문장 ③ 사후 관리 팁, 이 세 곳에만 반영한다. 견적·평수·연락처·지역 이름은 초안 그대로 둔다.',
+  ];
+  if (ch.id === 'blog') {
+    out.push(
+      '10. ■ 작업 전 상태 목록에 [사진 분석]에서 확인된 상태를 1~2줄(\'· \' 로 시작) 더한다. 기존 항목은 지우지 않는다.',
+      '11. 본문 어딘가에 [사진 분석]의 추정 원인을 한 문장으로 설명한다. 원인을 단정하지 말고 \'...로 보입니다\'처럼 쓴다.',
+      '12. ■ 셀프로 확인할 포인트에는 이 현장 상태에 맞는 관리 팁을 하나 더한다. 기존 항목은 지우지 않는다.',
+      '13. [사진 분석]에 없는 공정을 새로 만들지 않는다. 초안의 공정 이름과 순서를 그대로 둔다.',
+    );
+  } else {
+    out.push(
+      '8. [사진 분석]에서 가장 눈에 띄는 상태 하나를 첫 두 문단 안에 이 현장의 상태로 녹인다. 사진에 없는 부위는 넣지 않는다.',
+      '9. [사진 분석]에 없는 공정을 새로 만들지 않고, 초안의 형식과 순서를 그대로 둔다.',
+    );
+  }
+  return out;
+}
+
+function channelRules(channel: string, tone: string, withPhotos: boolean, analysis: SiteAnalysis | null): string[] {
   const ch = getChannel(channel);
   void withPhotos;
 
   if (ch.id === 'blog') {
+    const marker3 = analysis
+      ? '3. \'[사진 : ...]\' 줄은 글자 그대로 유지한다. [사진 분석]에서 그 줄이 가리키는 부위(예: 창틀·샤시, 욕실 줄눈)가 확인되면 바로 아래 줄에 \'→ \' 로 시작하는 설명 한 줄을 넣는다. [사진 분석]에 그 부위가 없으면 넣지 않는다.'
+      : '3. \'[사진 : ...]\' 줄은 글자 그대로 유지한다. 그 줄이 가리키는 부위(예: 창틀·샤시, 욕실 줄눈)가 첨부 사진에 실제로 보이면 바로 아래 줄에 \'→ \' 로 시작하는 설명 한 줄을 넣는다. 사진에 그 부위가 없거나 다른 부위만 보이면 설명 줄을 넣지 않는다. 다른 공정의 사진 설명을 그 줄 밑에 붙이지 않는다.';
+    const marker4 = analysis
+      ? '4. \'→ \' 줄에는 [사진 분석]에 적힌 것만 쓴다. 그 줄의 공정과 분석한 부위가 다르면 아무것도 쓰지 않는다.'
+      : '4. \'→ \' 줄에는 사진에서 실제로 보이는 것만 쓴다. 사진에 찍힌 부위와 그 줄의 공정 이름이 다르면 아무것도 쓰지 않는다.';
     return [
-      '3. \'[사진 : ...]\' 줄은 글자 그대로 유지한다. 그 줄이 가리키는 부위(예: 창틀·샤시, 욕실 줄눈)가 첨부 사진에 실제로 보이면 바로 아래 줄에 \'→ \' 로 시작하는 설명 한 줄을 넣는다. 사진에 그 부위가 없거나 다른 부위만 보이면 설명 줄을 넣지 않는다. 다른 공정의 사진 설명을 그 줄 밑에 붙이지 않는다.',
-      '4. \'→ \' 줄에는 사진에서 실제로 보이는 것만 쓴다. 사진에 찍힌 부위와 그 줄의 공정 이름이 다르면 아무것도 쓰지 않는다.',
+      marker3,
+      marker4,
       '5. \'■\' 로 시작하는 소제목 구조와 \'■ 현장 요약\' 항목은 유지한다. \'■ 작업 전 상태\', \'■ 작업 순서\', \'■ 달라진 점\', \'■ 셀프로 확인할 포인트\' 소제목과 그 아래 목록은 지우지 않는다.',
       '6. 첫 문단에서 지역명과 업종 키워드를 빼지 않는다. 제목과 첫 문단만 봐도 무엇을 하는 곳인지 알 수 있어야 한다.',
       '7. 지역·업종 키워드는 초안에 나온 자리에서 3~7회 안으로 자연스럽게 둔다. 같은 키워드를 문장마다 반복하거나 소제목에 도배하지 않는다.',
@@ -76,32 +120,36 @@ function channelRules(channel: string, tone: string, withPhotos: boolean): strin
   ];
 }
 
-export function buildPrompt(req: Pick<PolishRequest, 'channel' | 'draft' | 'tone' | 'photos'>): string {
+export function buildPrompt(req: Pick<PolishRequest, 'channel' | 'draft' | 'tone' | 'photos' | 'analysis'>): string {
   const ch = getChannel(req.channel);
   const withPhotos = req.photos.length > 0;
-  const head = withPhotos
-    ? '아래 초안은 규칙 기반으로 만든 원고다. 첨부한 현장 사진을 실제로 보고, 사진에서 확인되는 상태만 반영해 문장을 다듬어라.'
-    : '아래 초안은 규칙 기반으로 만든 원고다. 사진 없이 문장만 자연스럽게 다듬어라.';
+  const analysis = req.analysis || null;
+  const head = analysis
+    ? '아래 초안은 규칙 기반으로 만든 원고다. 첨부한 현장 사진을 먼저 분석한 결과가 [사진 분석]에 있다. 분석에서 확인된 상태만 근거로, 이 현장에만 맞는 문장으로 다듬어라.'
+    : withPhotos
+      ? '아래 초안은 규칙 기반으로 만든 원고다. 첨부한 현장 사진을 실제로 보고, 사진에서 확인되는 상태만 반영해 문장을 다듬어라.'
+      : '아래 초안은 규칙 기반으로 만든 원고다. 사진 없이 문장만 자연스럽게 다듬어라.';
   return [
     '너는 한국 시공·청소 업체 사장님의 ' + ch.label + ' 후기를 다듬는 편집자다.',
     head,
     '',
     '지킬 것:',
     '1. 지역, 평수, 업종, 공정 이름, 견적, 업체명, 연락처 같은 사실은 초안 그대로 둔다. 없는 내용을 지어내지 않는다.',
-    photoRule(req.channel, withPhotos),
+    photoRule(withPhotos, analysis),
   ]
-    .concat(channelRules(req.channel, req.tone, withPhotos))
+    .concat(noAfterRule(analysis) ? [noAfterRule(analysis)] : [])
+    .concat(analysisRule(req.channel, analysis))
+    .concat(channelRules(req.channel, req.tone, withPhotos, analysis))
     .concat([
       '- 금지 표현: ~에 대해 알아보겠습니다, 살펴보겠습니다, 다음과 같습니다, 다음과 같은, 결론적으로, 요약하면, 시사하는 바, 본질적으로, 도움이 되셨길, 지금부터, 최고, 완벽, 100%',
       '- 줄표(—, –)를 쓰지 않는다. 나열이 필요하면 쉼표나 마침표로 끊는다.',
       '- 연결어미(-고, -며, -서, -는데, -니까) 바로 뒤에 쉼표를 넣지 않는다.',
       '- 광고 문구나 이모지를 새로 넣지 않는다. "저희가 최선을 다해" 같은 뻔한 문장도 넣지 않는다.',
-      '- 다 쓰고 나서 스스로 확인한다: ① 지역·평수·공정·견적·연락처가 초안과 같은가 ② 줄표가 없는가 ③ 이모지가 없는가 ④ 연결어미 뒤에 쉼표가 없는가 ⑤ 초안에 없던 사실이나 수치를 넣지 않았는가.',
+      '- 다 쓰고 나서 스스로 확인한다: ① 지역·평수·공정·견적·연락처가 초안과 같은기 ② 줄표가 없는가 ③ 이모지가 없는가 ④ 연결어미 뒤에 쉼표가 없는가 ⑤ ' + (analysis ? '초안과 [사진 분석]에 없던 사실·수치를 넣지 않았는가' : '초안에 없던 사실이나 수치를 넣지 않았는가') + '.',
       '- 출력은 다듬은 본문 전체만. 설명, 인사말, 코드블록 표시 없이.',
-      '',
-      '─ 초안 ─',
-      req.draft,
     ])
+    .concat(analysis ? ['', '─ 사진 분석 ─', describeAnalysis(analysis)] : [])
+    .concat(['', '─ 초안 ─', req.draft])
     .join('\n');
 }
 
@@ -237,7 +285,8 @@ async function callModel(model: string, req: PolishRequest, timeoutMs: number): 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(
+    const doFetch = req.fetchImpl || fetch;
+    const res = await doFetch(
       'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent',
       {
         method: 'POST',
@@ -274,7 +323,8 @@ export async function polishDraft(req: PolishRequest): Promise<PolishResult> {
   const left = () => deadline - Date.now();
   const finish = (raw: string) => {
     const clean = collapseMarkers(restoreMarkers(sanitize(stripFence(raw)), req.draft));
-    return req.photos.length ? clean : stripPhotoArrows(clean);
+    const withEvidence = req.photos.length > 0 || !!req.analysis;
+    return withEvidence ? clean : stripPhotoArrows(clean);
   };
   let last = 'failed';
   let attempts = 0;
