@@ -29,7 +29,9 @@
     leak: svg('<path d="M12 3.5 6.8 10a7 7 0 1 0 10.4 0z"/><path d="M9.5 14.5a2.6 2.6 0 0 0 2.5 2.4"/>', 20),
     silicon: svg('<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18 17v3M16.5 18.5h3"/>', 20),
     screen: svg('<rect x="3.5" y="4" width="17" height="14" rx="1.5"/><path d="M12 4v14M3.5 11h17"/><path d="M7 21h10"/>', 20),
-    camera: svg('<path d="M4 8.5h2.6L8 6h8l1.4 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.4" r="3.4"/>', 16)
+    camera: svg('<path d="M4 8.5h2.6L8 6h8l1.4 2.5H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.4" r="3.4"/>', 16),
+    check: svg('<path d="M20 6 9 17l-5-5"/>', 14),
+    alert: svg('<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5"/><path d="M12 16.2h.01"/>', 14)
   };
 
   /* ── 설정 (공개 저장소용 값만) ───────────────────────────────────── */
@@ -1134,7 +1136,7 @@
     }).join('');
 
     $('#bodyText').innerHTML = renderBodyHtml(r.body);
-    $('#bodyMeta').textContent = ch.label + ' · 공백 제외 ' + countChars(r.body) + '자';
+    $('#bodyMeta').textContent = ch.label + ' · ' + num(countChars(r.body)) + '자(공백 제외) / ' + num(r.body.length) + '자(공백 포함)';
     $('#bodyEdit').value = r.body;
     $('#bodyEdit').hidden = true;
     $('#bodyText').hidden = false;
@@ -1154,6 +1156,108 @@
     $('#aiHint').textContent = aiHintText(ch);
     state.editingBody = false;
     paintChannel();
+    renderSeoCheck();
+  }
+
+  /* ── 네이버 상위 노출 체크리스트 ─────────────────────────────────
+   * 결과 화면의 원고를 그대로 검사한다. 서버 없이 화면에서만 세고,
+   * 본문을 고치면(setBody) 바로 다시 센다. */
+  const SEO_RULE = { bodyMin: 1500, bodyMax: 3500, photoMin: 4, keywordMin: 3, keywordMax: 7, tagMax: 5 };
+
+  function countIn(text, needle) {
+    if (!needle) return 0;
+    return String(text).split(needle).length - 1;
+  }
+
+  function num(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+
+  function seoAudit(r) {
+    const ind = CAT.getIndustry(r.industryId) || {};
+    const body = String(r.body || '');
+    const titles = (r.titles || []).map(function (t) { return String(t).replace(/\s+/g, ' ').trim(); });
+    const region = String((r.summary && r.summary[0] && r.summary[0].v) || '').split(' ')[0];
+    const kw = String(ind.keyword || '');
+    const len = body.length;
+    const photos = (body.match(/\[사진\s*:/g) || []).length;
+    const hits = countIn(body, region);
+    const tags = (r.hashtags || []).length;
+
+    // 1·2안이 지역 + 업종으로 시작하는지(제목 앞배치)
+    const front = titles.slice(0, 2).map(function (t) {
+      return !!region && t.indexOf(region) === 0 && !!kw && t.indexOf(kw) >= 0 && t.indexOf(kw) < 24;
+    });
+    const frontOk = front.length > 0 && front.every(Boolean);
+    const lenOk = len >= SEO_RULE.bodyMin && len <= SEO_RULE.bodyMax;
+    const photoOk = photos >= SEO_RULE.photoMin;
+    const keyOk = hits >= SEO_RULE.keywordMin && hits <= SEO_RULE.keywordMax;
+    const tagOk = tags <= SEO_RULE.tagMax;
+
+    return [
+      {
+        ok: frontOk,
+        name: '제목 핵심 키워드 앞배치',
+        value: frontOk ? '1·2안' : '확인 필요',
+        desc: frontOk
+          ? '1번·2번 제목이 지역 + 업종으로 시작합니다'
+          : '1번·2번 제목이 지역 + 업종으로 시작하게 고쳐 주세요'
+      },
+      {
+        ok: lenOk,
+        name: '본문 분량',
+        value: num(len) + '자',
+        desc: lenOk
+          ? '1,500~3,500자 안에 들어왔습니다 (공백 포함)'
+          : (len < SEO_RULE.bodyMin
+            ? '1,500자까지 ' + num(SEO_RULE.bodyMin - len) + '자 남았어요 (공백 포함)'
+            : '3,500자를 넘으니 ' + num(len - SEO_RULE.bodyMax) + '자 줄여 주세요')
+      },
+      {
+        ok: photoOk,
+        name: '사진 삽입 자리',
+        value: photos + '곳',
+        desc: photos
+          ? '본문에 [사진 : ...] 자리가 ' + photos + '곳 들어갔습니다'
+          : '사진을 올리면 자리가 4곳 이상 생깁니다'
+      },
+      {
+        ok: keyOk,
+        name: '핵심 키워드 반복',
+        value: hits + '회',
+        desc: region
+          ? "지역 키워드 '" + region + "'가 본문에 나온 횟수 · 3~7회 권장"
+          : '지역 이름을 적으면 함께 세어 드립니다'
+      },
+      {
+        ok: tagOk,
+        name: '해시태그 개수',
+        value: tags + '개',
+        desc: tagOk ? '5개 이하로 맞았습니다' : '5개 이하로 줄여 주세요'
+      }
+    ];
+  }
+
+  function renderSeoCheck() {
+    const card = $('#seoCheckCard');
+    const r = state.result;
+    if (!card) return;
+    if (!r || r.channel !== 'blog') { card.hidden = true; return; }
+    card.hidden = false;
+
+    const rows = seoAudit(r);
+    const passed = rows.filter(function (x) { return x.ok; }).length;
+    const score = $('#seoScore');
+    score.textContent = passed + '/' + rows.length;
+    score.className = 'seo-score' + (passed === rows.length ? ' is-all' : '');
+    $('#seoCheckSub').textContent = passed === rows.length
+      ? '5개 항목 모두 통과했습니다'
+      : (rows.length - passed) + '개만 고치면 됩니다';
+    $('#seoRows').innerHTML = rows.map(function (x) {
+      return '<li class="seo-row ' + (x.ok ? 'is-ok' : 'is-warn') + '">' +
+        '<span class="seo-mark">' + (x.ok ? ICON.check : ICON.alert) + '</span>' +
+        '<span class="seo-text"><span class="seo-name">' + escapeHtml(x.name) + '</span>' +
+        '<span class="seo-desc">' + escapeHtml(x.desc) + '</span></span>' +
+        '<span class="seo-value">' + escapeHtml(x.value) + '</span></li>';
+    }).join('');
   }
 
   // 서버 다듬기 결과를 그대로 안내한다(키를 넣으라는 말은 더 이상 하지 않는다).
@@ -1190,7 +1294,8 @@
     refreshFullText();
     if (state.editingBody) $('#bodyEdit').value = text;
     else $('#bodyText').innerHTML = renderBodyHtml(text);
-    $('#bodyMeta').textContent = '공백 제외 ' + countChars(text) + '자';
+    $('#bodyMeta').textContent = '공백 제외 ' + num(countChars(text)) + '자 / 공백 포함 ' + num(text.length) + '자';
+    renderSeoCheck();
   }
 
   /* ── 비교 카드 ──────────────────────────────────────────────────── */

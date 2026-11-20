@@ -13,6 +13,10 @@
   --accent-soft: #fff1e8;
   --accent-hover: #e8580c;
   --ok: #0f8a5f;
+  --ok-ink: #0b6b4a;        /* 체크리스트 통과 문구·아이콘 (흰 배경에서 6.1:1) */
+  --ok-soft: #e6f4ec;
+  --warn-ink: #8a4b00;      /* 확인 필요 문구 (흰 배경에서 6.4:1) */
+  --warn-soft: #fdf1e3;
   --radius: 18px;
   --shadow: 0 2px 10px rgba(15, 27, 42, .06), 0 1px 2px rgba(15, 27, 42, .04);
   --shadow-lg: 0 18px 40px -18px rgba(15, 27, 42, .35);
@@ -679,6 +683,44 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
   color: var(--muted);
   margin-bottom: 8px;
 }
+
+/* ─────────── 네이버 상위 노출 체크리스트 ─────────── */
+.step-seo { background: var(--ok-soft); color: var(--ok-ink); }
+.seo-score {
+  flex: 0 0 auto;
+  font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums;
+  color: var(--ink-2); background: var(--bg);
+  border: 1px solid var(--line-2); border-radius: 999px;
+  padding: 4px 10px;
+}
+.seo-score.is-all { color: var(--ok-ink); background: var(--ok-soft); border-color: #cfe8db; }
+.seo-rows { display: grid; }
+.seo-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line-2);
+}
+.seo-row:first-child { border-top: 0; }
+.seo-mark {
+  width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center; margin-top: 1px;
+}
+.seo-row.is-ok .seo-mark { background: var(--ok-soft); color: var(--ok-ink); }
+.seo-row.is-warn .seo-mark { background: var(--warn-soft); color: var(--warn-ink); }
+.seo-text { display: block; min-width: 0; }
+.seo-name { display: block; font-size: 14px; font-weight: 600; color: var(--ink); letter-spacing: -.01em; }
+.seo-desc { display: block; font-size: 12px; line-height: 1.5; color: var(--muted); margin-top: 2px; }
+.seo-row.is-warn .seo-desc { color: var(--warn-ink); }
+.seo-value {
+  font-size: 12.5px; font-weight: 700; color: var(--ink-2);
+  font-variant-numeric: tabular-nums; white-space: nowrap; padding-top: 2px;
+}
+.seo-row.is-ok .seo-value { color: var(--ok-ink); }
+.seo-row.is-warn .seo-value { color: var(--warn-ink); }
+.seo-card .hint { margin-top: 10px; }
 
 .body-pre .sec { font-weight: 800; color: var(--ink); }
 

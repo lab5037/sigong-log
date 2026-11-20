@@ -5,7 +5,7 @@
 import { assertEquals, assert } from 'jsr:@std/assert@1';
 import { cleanImage, parseGenerateInput } from '../supabase/functions/generate-post/input.ts';
 import { acceptPolished, buildPrompt, collapseMarkers, modelChain, restoreMarkers, stripPhotoArrows } from '../supabase/functions/generate-post/polish.ts';
-import { sanitize } from '../supabase/functions/generate-post/engine.ts';
+import { generate, sanitize } from '../supabase/functions/generate-post/engine.ts';
 import { decideSpam, isPhoneLike, nowKst, parseLead, telegramText } from '../supabase/functions/submit-lead/lead.ts';
 
 function gen(body: Record<string, unknown>) {
@@ -165,6 +165,39 @@ Deno.test('polish: 형식이 어긋난 결과는 받지 않는다(폴백 신호)
   assertEquals(acceptPolished('insta', '짧음', '짧음').reason, 'too_short');
   // 초안의 숫자 사실이 사라지면 거부
   assertEquals(acceptPolished('insta', '송파구 입주청소 후기입니다. '.repeat(8), '송파구 34평 35~40만 원 작업').reason, 'facts');
+});
+
+Deno.test('polish: 네이버 노출 규칙(키워드 3~7회·분량)이 프롬프트에 들어간다', () => {
+  const p = buildPrompt({ channel: 'blog', draft: '초안', tone: '친근한 해요체', photos: [] });
+  assert(p.includes('3~7회'));
+  assert(p.includes('1,500자'));
+  assert(p.includes('■ 작업 전 상태'));
+});
+
+Deno.test('polish: 초안보다 크게 줄어든 블로그 결과는 받지 않는다', () => {
+  const draft = '■ 현장 요약\n' + '본문 내용입니다. '.repeat(120) + '\n[사진 : 창틀 · 시공 전]';
+  const short = '■ 현장 요약\n' + '본문 내용입니다. '.repeat(40) + '\n[사진 : 창틀 · 시공 전]';
+  assertEquals(acceptPolished('blog', short, draft).reason, 'too_short');
+  assert(acceptPolished('blog', draft, draft).ok);
+});
+
+Deno.test('engine.ts: 블로그 원고에 SEO 섹션·1,500자·제목 앞배치', () => {
+  const r = generate({
+    industryId: 'grout',
+    place: '송파구 잠실 엘스 34평',
+    detail: '욕실 줄눈 곰팡이, 탄성코트 희망',
+    price: '35~40만 원',
+    business: { name: 'OO클린', contact: '010-0000-0000', style: 'haeyo', closing: '감사합니다' },
+    photos: { before: true, during: true, after: true },
+    seed: 7,
+  });
+  assert(r.body.length >= 1500, '본문 1,500자 이상: ' + r.body.length);
+  assert(r.body.includes('■ 작업 전 상태'));
+  assert(r.body.includes('■ 작업 순서'));
+  assert(r.body.includes('■ 달라진 점'));
+  assert((r.body.match(/\[사진 : /g) || []).length >= 4);
+  assert(r.titles[0].startsWith('송파구') && r.titles[1].startsWith('송파구'));
+  assert(r.titles[1].includes('줄눈'));
 });
 
 Deno.test('polish: 모델 목록은 환경변수를 앞에 두고 중복을 지운다', () => {

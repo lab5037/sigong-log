@@ -58,16 +58,19 @@ function channelRules(channel: string, tone: string, withPhotos: boolean): strin
     return [
       '3. \'[사진 : ...]\' 줄은 글자 그대로 유지한다. 그 줄이 가리키는 부위(예: 창틀·샤시, 욕실 줄눈)가 첨부 사진에 실제로 보이면 바로 아래 줄에 \'→ \' 로 시작하는 설명 한 줄을 넣는다. 사진에 그 부위가 없거나 다른 부위만 보이면 설명 줄을 넣지 않는다. 다른 공정의 사진 설명을 그 줄 밑에 붙이지 않는다.',
       '4. \'→ \' 줄에는 사진에서 실제로 보이는 것만 쓴다. 사진에 찍힌 부위와 그 줄의 공정 이름이 다르면 아무것도 쓰지 않는다.',
-      '5. \'■\' 로 시작하는 소제목 구조와 \'■ 현장 요약\' 항목은 유지한다.',
-      '6. 분량은 900~1,200자를 유지한다.',
-      '7. 말투는 ' + tone + '로 통일한다.',
+      '5. \'■\' 로 시작하는 소제목 구조와 \'■ 현장 요약\' 항목은 유지한다. \'■ 작업 전 상태\', \'■ 작업 순서\', \'■ 달라진 점\', \'■ 셀프로 확인할 포인트\' 소제목과 그 아래 목록은 지우지 않는다.',
+      '6. 첫 문단에서 지역명과 업종 키워드를 빼지 않는다. 제목과 첫 문단만 봐도 무엇을 하는 곳인지 알 수 있어야 한다.',
+      '7. 지역·업종 키워드는 초안에 나온 자리에서 3~7회 안으로 자연스럽게 둔다. 같은 키워드를 문장마다 반복하거나 소제목에 도배하지 않는다.',
+      '8. 분량은 초안과 비슷하게 유지한다(1,500자 이상, 3,500자 이하).',
+      '9. 말투는 ' + tone + '로 통일한다.',
     ];
   }
   return [
     '3. \'' + ch.label + '\' 형식(첫 줄·줄바꿈·문단 순서·마지막 문의 유도 문장)을 그대로 유지한다. \'[사진 : ...]\'나 \'■\' 소제목은 새로 넣지 않는다.',
     '4. 분량은 초안과 비슷하게 유지한다' + (ch.id === 'threads' ? ' (500자 이내).' : '.'),
-    '5. 말투는 초안의 구어체를 유지한다.',
-    '6. 사진에 찍힌 부위와 다른 공정 이야기를 사진 근거로 쓰지 않는다.',
+    '5. 첫 줄과 첫 문단에서 지역명·업종 키워드를 빼지 않고, 초안에 나온 자리에서 3~7회 안으로 둔다. 도배하지 않는다.',
+    '6. 말투는 초안의 구어체를 유지한다.',
+    '7. 사진에 찍힌 부위와 다른 공정 이야기를 사진 근거로 쓰지 않는다.',
   ];
 }
 
@@ -187,6 +190,8 @@ export function acceptPolished(channel: string, polished: string, draft: string)
   if (text.length > 6000) return { ok: false, reason: 'too_long' };
   if (ch.id === 'blog') {
     if (text.length < 300) return { ok: false, reason: 'too_short' };
+    // 초안보다 크게 줄어든 결과는 받지 않는다(분량이 줄면 검색 노출에 불리하다).
+    if (text.length < Math.floor(String(draft || '').length * 0.8)) return { ok: false, reason: 'too_short' };
     if (text.indexOf('■') < 0) return { ok: false, reason: 'format' };
     const draftMarkers = String(draft)
       .split('\n')
@@ -225,7 +230,7 @@ async function callModel(model: string, req: PolishRequest, timeoutMs: number): 
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': req.apiKey },
         body: JSON.stringify({
           contents: [{ role: 'user', parts }],
-          generationConfig: { temperature: 0.75, topP: 0.95, maxOutputTokens: req.channel === 'blog' ? 3000 : 1200 },
+          generationConfig: { temperature: 0.75, topP: 0.95, maxOutputTokens: req.channel === 'blog' ? 4000 : 1200 },
         }),
         signal: controller.signal,
       },

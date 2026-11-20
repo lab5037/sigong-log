@@ -84,12 +84,37 @@ ok($$('#titleList li').length === 3, '예시 제목 3안', String($$('#titleList
 ok($$('#tagList span').length === 5, '예시 해시태그 5개', String($$('#tagList span').length));
 const blogBody = $('#bodyText').textContent;
 
+// 네이버 상위 노출 체크리스트 — 비로그인 예시에서도 보인다
+ok(!$('#seoCheckCard').hidden, '예시 결과에 체크리스트 카드 표시');
+ok($$('#seoRows .seo-row').length === 5, '체크리스트 5항목', String($$('#seoRows .seo-row').length));
+ok($$('#seoRows .seo-row.is-ok').length === 5, '예시 원고는 5항목 모두 통과', $$('#seoRows .is-warn').length + '개 경고');
+ok($('#seoScore').textContent === '5/5', '체크리스트 점수 표시', $('#seoScore').textContent);
+const seoText = $('#seoRows').textContent;
+ok(seoText.includes('제목 핵심 키워드 앞배치') && seoText.includes('본문 분량') && seoText.includes('사진 삽입 자리') && seoText.includes('핵심 키워드 반복') && seoText.includes('해시태그 개수'), '체크리스트 항목 이름', seoText.slice(0, 80));
+ok(/1,5\d\d자|1,\d{3}자/.test(seoText), '본문 실제 글자수 표시', (seoText.match(/\d,\d{3}자/) || [])[0]);
+ok(!/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test($('#seoCheckCard').innerHTML), '체크리스트에 이모지 없음(라인 아이콘)');
+
 // 채널 전환(서버 호출 없이 고정 예시에서 바뀐다)
 $$('.channel-chip').find((b) => b.getAttribute('data-channel') === 'insta').click();
 await sleep(80);
 ok($('#resultMeta').textContent.includes('인스타그램'), '채널 전환 → 인스타그램', $('#resultMeta').textContent);
 ok(($('#bodyText').textContent || '').includes('바뀐 포인트'), '인스타 형식 본문');
 ok($('#bodyText').textContent !== blogBody, '채널별 본문 상이');
+ok($('#seoCheckCard').hidden, '블로그가 아닌 채널에서는 체크리스트를 숨긴다');
+
+// 블로그로 돌아오면 다시 보인다
+$$('.channel-chip').find((b) => b.getAttribute('data-channel') === 'blog').click();
+await sleep(80);
+ok(!$('#seoCheckCard').hidden && $('#seoScore').textContent === '5/5', '블로그 복귀 시 체크리스트 재계산');
+// 본문을 고치면 체크리스트도 다시 센다(사진 자리 줄이 줄면 경고)
+const editedBody = $('#bodyText').textContent.replace(/\[사진[^\]]*\]/g, '');
+$('#editBodyBtn').click();
+await sleep(20);
+$('#bodyEdit').value = editedBody;
+$('#editBodyBtn').click();
+await sleep(40);
+ok($$('#seoRows .seo-row.is-warn').length >= 1, '본문 수정 시 체크리스트 경고로 바뀜');
+ok($('#seoScore').textContent !== '5/5', '점수도 다시 계산', $('#seoScore').textContent);
 
 // 비로그인 상태에서 새 현장으로 [후기 만들기] → 로그인 요구(클라이언트 생성 없음)
 const ev = new window.Event('input', { bubbles: true });

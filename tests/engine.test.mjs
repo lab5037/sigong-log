@@ -110,7 +110,7 @@ ok(!noBiz.body.includes('입니다. 송파구'), '업체명 없으면 자연스�
 
 // 10) 본문 길이 (블로그 분량)
 const avg = Math.round(totalChars.reduce((a, b) => a + b, 0) / totalChars.length);
-ok(avg > 950 && avg < 3000, '본문 평균 길이 적정', avg);
+ok(avg > 1400 && avg < 3000, '본문 평균 길이 적정', avg);
 
 // 11) 채널 4종 — 같은 현장 정보로 형식만 달라진다
 ok(E.CHANNELS.length === 4 && E.CHANNELS.map(c => c.id).join(',') === 'blog,danggeun,insta,threads', '채널 4종 정의');
@@ -127,11 +127,23 @@ for (const ind of E.INDUSTRIES) {
   const tag = ind.id;
   const base = { ...chBase, industryId: ind.id, extra: ind.extra ? '4대 · 천장형 4WAY' : '' };
 
-  // 네이버 블로그 — 900~1,200자 상세 본문
+  // 네이버 블로그 — 1,500자 이상 상세 본문 (네이버 상위 노출 기준)
   const blog = E.generate({ ...base, channel: 'blog' });
-  ok(blog.body.length >= 900 && blog.body.length <= 1210, tag + ' 블로그 본문 900~1,200자', String(blog.body.length));
+  ok(blog.body.length >= 1450 && blog.body.length <= 2500, tag + ' 블로그 본문 1,500자 이상', String(blog.body.length));
   ok(blog.body.includes('■ 현장 요약') && (blog.body.match(/\[사진 : /g) || []).length >= 4, tag + ' 블로그 요약표·사진 위치');
+  ok(blog.body.includes('■ 작업 전 상태') && blog.body.includes('■ 작업 순서') && blog.body.includes('■ 달라진 점'), tag + ' 블로그 SEO 섹션');
+  ok((blog.body.match(/^· /gm) || []).length >= 8, tag + ' 블로그 목록(현장 상태·달라진 점·확인 포인트)', String((blog.body.match(/^· /gm) || []).length));
+  ok(blog.body.includes(ind.keyword), tag + ' 블로그 본문에 업종 키워드');
   ok(blog.titles.length === 3 && blog.hashtags.length === 5 && blog.seoKeywords.length === 4, tag + ' 블로그 3제목·5태그·4키워드');
+  // 제목 1·2안은 지역 + 업종이 맨 앞에 온다(네이버 검색어 앞배치)
+  [0, 1].forEach(function (i) {
+    const t = blog.titles[i];
+    ok(t.indexOf('송파구') === 0, tag + ' 제목' + (i + 1) + '안 지역 앞배치', t);
+    ok(t.indexOf(ind.keyword) > 0 && t.indexOf(ind.keyword) < 24, tag + ' 제목' + (i + 1) + '안 업종 키워드 앞쪽', t);
+  });
+  // 지역 키워드 반복 3~7회 (본문 기준)
+  const regionHits = blog.body.split('송파구').length - 1;
+  ok(regionHits >= 3 && regionHits <= 7, tag + ' 지역 키워드 3~7회', String(regionHits));
 
   // 당근 — 동네 소식, 짧은 본문 + 채팅 유도
   const dg = E.generate({ ...base, channel: 'danggeun' });

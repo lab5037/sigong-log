@@ -55,8 +55,17 @@ ok(/functions\.invoke\('submit-lead'/.test(app), 'app.js 가 submit-lead Edge Fu
 ok(!/script\.google\.com/.test(app), 'app.js 에 GAS 웹훅 URL 이 없다');
 ok(!/sb_secret_[A-Za-z0-9_-]{6,}/.test(app), 'app.js 에 비밀키가 없다');
 ok(!/generativelanguage\.googleapis\.com/.test(app), '브라우저가 Gemini를 직접 부르지 않는다(서버 내장)');
-ok(!/geminiKey|fieldlog\.gemini/.test(app), 'app.js 에 Gemini 키 입력·저장 로직이 없다');
+ok(!/geminiKey/.test(app), 'app.js 에 Gemini 키 입력 로직이 없다');
+ok(!/setItem\(\s*['"]fieldlog\.gemini/.test(app), 'app.js 가 Gemini 키를 저장하지 않는다');
+ok(/removeItem\(\s*['"]fieldlog\.gemini/.test(app), '예전 버전이 브라우저에 남긴 Gemini 키는 지운다');
+
+// 네이버 상위 노출(SEO) 기능 — 제목 앞배치 규칙과 결과 화면 체크리스트
 const page2 = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+ok(/지역 \+ 업종/.test(fs.readFileSync(path.join(root, 'engine.js'), 'utf8')), 'engine.js 에 제목 앞배치 규칙 주석');
+ok(/seoAudit/.test(app) && /renderSeoCheck/.test(app), 'app.js 가 원고를 검사해 체크리스트를 그린다');
+ok(/네이버 상위 노출 체크리스트/.test(page2), 'index.html 에 체크리스트 카드가 있다');
+ok(/id="seoCheckCard"/.test(page2) && /id="seoRows"/.test(page2), 'index.html 체크리스트 DOM');
+ok(/summary\[0\]/.test(app), 'app.js 가 지역 키워드를 원고에서 읽는다');
 ok(!/geminiKey|Gemini API 키/.test(page2), 'index.html 에 API 키 입력칸이 없다');
 
 console.log('통과:', pass, ' 실패:', fail);
