@@ -64,6 +64,7 @@
     layout: 'fieldlog.layout.v1',
     lead: 'fieldlog.lead.v1',
     channel: 'fieldlog.channel.v1',
+    posts: 'fieldlog.posts.v1',  // 만든 원고 목록 (이 기기에만 저장, 서버에는 안 올림)
     owner: 'fieldlog.owner.v1'   // 마지막으로 로그인한 계정 id (계정 전환 감지용)
   };
 
@@ -82,6 +83,7 @@
     plan: '',
     lastDemo: false,
     demoScene: false,   // [예시로 바로 체험하기]로 채운 가상 현장인지
+    demoVariant: 0,     // 예시 다시 만들기 변형 번호 (0=원본, 1·2=다른 표현)
     posts: null,        // 서버가 한 번에 만들어 준 4채널 결과 (채널 전환은 무료)
     genBusy: false
   };
@@ -295,14 +297,14 @@
     if (bar) {
       bar.classList.toggle('is-on', signed && !info.out);
       bar.classList.toggle('is-out', signed && info.out);
-      $('#abName').textContent = signed ? (auth.session.user.email || '내 계정') : '로그인이 필요해요';
+      $('#abName').textContent = signed ? (auth.session.user.email || '내 계정') : '로그인하면 무료 3건';
       $('#abSub').textContent = signed
         ? (auth.schemaMissing
           ? '체험 횟수 잠금이 아직 서버에 없어요 — 관리자 확인이 필요합니다'
           : (auth.profileError
             ? '체험 횟수를 서버에서 불러오지 못했어요 — 관리자 확인이 필요합니다'
             : info.text + ' · 업체 정보는 계정에 저장됩니다'))
-        : '무료 3건 체험을 위해 10초만 써 주세요';
+        : '예시 체험은 로그인 없이 가능해요 · 실제 원고 만들기는 로그인이 필요해요';
       $('#abBtn').hidden = signed;
       $('#abActions').hidden = !signed;
     }
@@ -310,6 +312,9 @@
   }
 
   function paintSysState() {
+    // 관리자 상태는 일반 방문자에게 노출하지 않는다. #admin 해시가 있을 때만 보인다.
+    const box = $('#adminSet');
+    if (box) box.hidden = location.hash !== '#admin';
     const el = $('#sysState');
     if (!el) return;
     if (!auth.sb) { el.textContent = '계정 모듈을 불러오지 못했습니다 — 새로고침해 주세요.'; return; }
@@ -349,6 +354,12 @@
     });
     $('#authSubmit').textContent = auth.mode === 'signup' ? '회원가입하고 시작하기' : '로그인';
     $('#authPw').setAttribute('autocomplete', auth.mode === 'signup' ? 'new-password' : 'current-password');
+    // 회원가입 전용: 비밀번호 확인 + 이메일 사용 동의 / 로그인 전용: 비밀번호 찾기
+    const pw2 = $('#authPw2Field'); if (pw2) pw2.hidden = auth.mode !== 'signup';
+    const agree = $('#authAgreeRow'); if (agree) agree.hidden = auth.mode !== 'signup';
+    const forgot = $('#authForgotRow'); if (forgot) forgot.hidden = auth.mode !== 'login';
+    const pw2i = $('#authPw2'); if (pw2i) pw2i.value = '';
+    const ag = $('#authAgree'); if (ag) ag.checked = false;
     $('#authNote').textContent = auth.mode === 'signup'
       ? '가입한 이메일·비밀번호로 다음에도 로그인할 수 있습니다. 비밀번호는 저희가 볼 수 없습니다.'
       : '체험 횟수는 서버에 저장돼 기기를 바꿔도 유지됩니다. 비밀번호는 저희가 볼 수 없습니다.';
@@ -393,6 +404,11 @@
     const pw = $('#authPw').value;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { authMsg('이메일 주소를 확인해 주세요.'); return; }
     if (pw.length < 6) { authMsg('비밀번호는 6자 이상으로 넣어 주세요.'); return; }
+    if (auth.mode === 'signup') {
+      const pw2 = $('#authPw2') ? $('#authPw2').value : '';
+      if (pw2 !== pw) { authMsg('비밀번호 확인이 일치하지 않아요.'); return; }
+      if (!$('#authAgree') || !$('#authAgree').checked) { authMsg('체험 횟수 관리 목적의 이메일 사용에 동의해 주세요.'); return; }
+    }
     setAuthBusy(true);
     auth.actionSignIn = true;
     try {
@@ -473,6 +489,27 @@
     if (info.plan === 'trial' || info.plan === 'light') {
       toast(info.out ? '체험 횟수를 다 쓰셨어요' : info.text);
     }
+    paintQuotaNote();
+  }
+
+  // 결과 화면에 남은 횟수를 보여준다. 예시·비로그인 상태에서는 숨긴다.
+  function paintQuotaNote() {
+    const el = $('#quotaNote');
+    if (!el) return;
+    if (state.lastDemo || !auth.session || !auth.profile) { el.hidden = true; el.textContent = ''; return; }
+    const info = planInfo(auth.profile);
+    el.hidden = false;
+    el.textContent = info.out
+      ? '무료 체험을 모두 쓰셨어요 — 계속 쓰려면 플랜을 신청해 주세요'
+      : '남은 횟수: ' + info.text;
+  }
+
+  // 업체 연락처가 비어 있으면 결과 화면에서 경고한다. 예시 체험은 제외한다.
+  function paintBizWarn() {
+    const el = $('#bizWarn');
+    if (!el) return;
+    const missing = !state.lastDemo && !state.sampleBizData && !currentBiz().contact;
+    el.hidden = !missing;
   }
 
   // 원고는 서버(Edge Function)에서만 만듭니다. 서버가 횟수를 차감하고 결과를 돌려줍니다.
@@ -553,6 +590,17 @@
     }, 2200);
   }
 
+  /* ── 계측 (GA4) ───────────────────────────────────────────────────
+   * 측정 ID는 index.html의 window.__GA_ID에 있다. 아직 실제 ID가 없어
+   * 플레이스홀더('G-XXXXXXXXXX')인 동안에는 아무것도 보내지 않는다. */
+  function trackEvent(name, params) {
+    try {
+      if (typeof window.gtag === 'function' && window.__GA_ID && window.__GA_ID !== 'G-XXXXXXXXXX') {
+        window.gtag('event', name, params || {});
+      }
+    } catch (e) { /* 계측 실패가 본 기능을 막지 않는다 */ }
+  }
+
   /* ── 복사 ───────────────────────────────────────────────────────── */
   function copyText(text, okMsg) {
     const done = function () { toast(okMsg || '복사했어요'); };
@@ -623,6 +671,7 @@
     if (state.view === 'result' && state.result) {
       // 서버가 한 번에 4채널을 만들어 두므로 채널 전환은 횟수를 더 쓰지 않는다.
       const next = state.lastDemo ? DEMO.get(ch.id) : (state.posts ? state.posts[ch.id] : null);
+      if (state.lastDemo) state.demoVariant = 0;
       if (!next) {
         toast('채널을 바꾸려면 [다시 만들기]를 눌러 주세요');
         return;
@@ -713,8 +762,12 @@
   function paintPlanNote() {
     const el = $('#planNote');
     if (!el) return;
-    if (!state.plan) { el.hidden = true; el.innerHTML = ''; return; }
+    // 요금제를 고르지 않았을 때도 선택지를 보여준다. '변경'을 눌러 지워도 다시 고를 수 있다.
     el.hidden = false;
+    if (!state.plan) {
+      el.innerHTML = '희망 요금제 : <button type="button" class="plan-pick" data-plan="라이트">라이트 · 월 19,000원</button> <button type="button" class="plan-pick" data-plan="프로">프로 · 월 39,000원</button> <button type="button" class="plan-pick" data-plan="카톡 1:1 대행형">카톡 1:1 대행형 · 월 79,000원</button>';
+      return;
+    }
     el.innerHTML = '희망 요금제 : <strong>' + escapeHtml(state.plan) + '</strong> <button type="button" class="plan-clear">변경</button>';
   }
 
@@ -783,6 +836,7 @@
       if (r.ok && r.duplicate) { setLeadState('duplicate'); toast('이미 접수된 신청이에요'); return; }
       if (r.ok) {
         setLeadState('ok', r.notified);
+        trackEvent('apply_submit', { plan: lead.plan || '' });
         toast('신청이 접수됐어요');
         return;
       }
@@ -1084,12 +1138,15 @@
       input.images = await collectImages();
       const res = await requestPosts(input);
       if (!res.ok) { handleGenError(res); return; }
+      trackEvent('generate', { channel: state.channel, industry: state.industryId });
       state.posts = res.posts;
       state.result = res.posts[state.channel] || res.posts.blog;
       state.ai = res.ai || null;
       state.lastDemo = false;
       if (res.quota) applyUsage(res.quota);
       renderResult();
+      savePost(state.result);
+      renderMyPosts();
       showView('result');
       drawCompare();
     } finally {
@@ -1099,13 +1156,70 @@
   }
 
   // 고정 예시 결과(가상 데이터) 미리보기 — 횟수 차감 없음, 생성기도 부르지 않음
+  // 예시는 고정 데이터라 서버처럼 새로 만들 수 없어서, '다시 만들기'는
+  // 미리 준비한 다른 표현 2가지와 제목 순서를 돌려가며 보여준다.
+  var DEMO_REPHRASE = {
+    blog: {
+      from: 'OO구 OO아파트 줄눈 작업하고 왔어요. 기존 줄눈이 까맣게 올라와 있어서 새 줄눈만 덧대면 금방 다시 들떠요. 그래서 파내는 데 시간을 제일 많이 썼어요.',
+      alts: [
+        'OO구 OO아파트 34평 줄눈 현장 다녀왔어요. 까맣게 올라온 기존 줄눈은 덧대기만 해서는 금방 다시 들뜨더라고요. 그래서 파내는 데 시간을 제일 많이 썼어요.',
+        '오늘 다녀온 곳은 OO구 OO아파트 34평 줄눈 현장이었어요. 기존 줄눈이 까맣게 올라와 있어서 덧대면 두 달도 못 가 다시 들뜬다고 말씀드리고, 파내는 것부터 시작했어요.'
+      ]
+    },
+    danggeun: {
+      from: '안녕하세요, OO구에서 줄눈 하는 OO클린입니다.',
+      alts: [
+        '안녕하세요, OO구에서 줄눈 하고 있는 OO클린입니다.',
+        '안녕하세요! OO구에서 줄눈 하는 OO클린입니다.'
+      ]
+    },
+    insta: {
+      from: '줄눈 곰팡이, 사진으로 먼저 보세요.',
+      alts: [
+        '줄눈 곰팡이, 사진으로 먼저 확인해 보세요.',
+        '곰팡이 낀 줄눈, 사진으로 먼저 보여드릴게요.'
+      ]
+    },
+    threads: {
+      from: '오늘 OO구 OO아파트 34평 줄눈 하고 왔어요. 3~4시간 걸렸습니다.',
+      alts: [
+        '오늘 OO구 OO아파트 34평 줄눈 현장 다녀왔어요. 3~4시간 걸렸습니다.',
+        'OO구 OO아파트 34평 줄눈 작업 마치고 왔어요. 3~4시간 걸렸습니다.'
+      ]
+    }
+  };
+
   function showDemo() {
+    state.demoVariant = 0;
     state.posts = null;
     state.result = DEMO.get(state.channel);
     state.lastDemo = true;
     renderResult();
     showView('result');
     drawCompare();
+  }
+
+  // 예시 '다시 만들기': 원본 → 다른 표현 1 → 다른 표현 2 → 원본 순으로 돈다.
+  // 고정 예시 객체를 직접 고치지 않고 복사본에만 적용한다.
+  function regenDemo() {
+    state.demoVariant = ((state.demoVariant || 0) + 1) % 3;
+    const v = state.demoVariant;
+    const post = JSON.parse(JSON.stringify(DEMO.get(state.channel)));
+    if (v > 0) {
+      const rule = DEMO_REPHRASE[state.channel];
+      if (rule && post.body.indexOf(rule.from) === 0) {
+        post.body = rule.alts[v - 1] + post.body.slice(rule.from.length);
+      }
+      if (post.titles && post.titles.length > 1) {
+        post.titles = post.titles.slice(v).concat(post.titles.slice(0, v));
+      }
+    }
+    state.result = post;
+    state.lastDemo = true;
+    refreshFullText();
+    renderResult();
+    drawCompare();
+    toast(v === 0 ? '예시 원고 처음으로 돌아왔어요' : '다른 표현으로 바꿨어요 (예시 ' + (v + 1) + '/3)');
   }
 
   function refreshFullText() {
@@ -1176,6 +1290,49 @@
     state.editingBody = false;
     paintChannel();
     renderSeoCheck();
+    paintQuotaNote();
+    paintBizWarn();
+  }
+
+  /* ── 내 원고 목록 (이 기기 localStorage에만 저장 — 서버에는 안 올림) ── */
+  function loadSavedPosts() {
+    const list = read(STORE.posts, null);
+    return Array.isArray(list) ? list : [];
+  }
+
+  function savePost(r) {
+    if (!r || !r.body) return;
+    const list = loadSavedPosts();
+    list.unshift({
+      id: 'p' + Date.now().toString(36),
+      at: fmtNow(),
+      industryId: r.industryId,
+      channel: r.channel,
+      title: (r.titles && r.titles[0]) || '',
+      titles: r.titles || [],
+      body: r.body,
+      fullText: r.fullText || '',
+      hashtags: r.hashtags || [],
+      seoKeywords: r.seoKeywords || [],
+      summary: r.summary || [],
+      summaryText: r.summaryText || ''
+    });
+    write(STORE.posts, list.slice(0, 30));
+  }
+
+  function renderMyPosts() {
+    const box = $('#myPostsList');
+    if (!box) return;
+    const list = loadSavedPosts();
+    const empty = $('#myPostsEmpty');
+    if (empty) empty.hidden = list.length > 0;
+    box.innerHTML = list.map(function (p) {
+      const ind = CAT.getIndustry(p.industryId);
+      return '<li class="mypost"><div class="mypost-main"><strong>' + escapeHtml(p.title || '제목 없음') + '</strong>' +
+        '<small>' + escapeHtml(p.at) + ' · ' + escapeHtml(ind ? ind.label : '') + ' · ' + escapeHtml(CAT.getChannel(p.channel).label) + '</small></div>' +
+        '<button class="btn btn-ghost btn-sm" type="button" data-load-post="' + p.id + '">불러오기</button>' +
+        '<button class="btn btn-ghost btn-sm" type="button" data-del-post="' + p.id + '">삭제</button></li>';
+    }).join('');
   }
 
   /* ── 네이버 상위 노출 체크리스트 ─────────────────────────────────
@@ -1241,7 +1398,7 @@
           ? '사진을 올리면 자리가 4곳 이상 생깁니다'
           : (photoOk
             ? (uploaded > 0 && uploaded < SEO_RULE.photoMin
-              ? '올린 사진 ' + uploaded + '장에 맞춰 ' + photos + '곳을 잠았습니다'
+              ? '올린 사진 ' + uploaded + '장에 맞춰 ' + photos + '곳을 잡았습니다'
               : '본문에 [사진 : ...] 자리가 ' + photos + '곳 들어갔습니다')
             : '지금 사진 ' + uploaded + '장 기준으로 ' + photoGoal + '곳이 필요합니다')
       },
@@ -1359,15 +1516,22 @@
     C.canvasToBlob(compareCanvas, 'image/png').then(function (blob) {
       if (!blob) { toast('이미지를 저장하지 못했어요'); return; }
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
-      toast('저장했어요 — 사진 앱에서 확인하세요');
-    });
+      // iOS 사파리는 a[download] 클릭 다운로드를 무시하므로 새 탭으로 열어 길게 눌러 저장하게 한다.
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent || '');
+      if (isIOS) {
+        window.open(url, '_blank');
+        toast('새 탭에서 이미지를 열었어요 — 길게 눌러 저장하세요');
+      } else {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        toast('비교 사진을 다운로드했어요 — 다운로드 폴더에서 확인하세요');
+      }
+      setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+    }, function () { toast('이미지를 저장하지 못했어요'); });
   }
 
   /* ── 예시 체험 (assets/demo-*.jpg 실사 사진) ────────────────────── */
@@ -1430,6 +1594,9 @@
       state.tone = state.sampleBizData.style;
       paintTone();
       $('#sampleBizNote').hidden = false;
+      // 예시 업체 정보는 접힌 업체 정보 칸 안에 있어, 쓸 때는 펼쳐 둔다.
+      $('#bizBody').hidden = false;
+      $('#bizToggle').setAttribute('aria-expanded', 'true');
       updateBizSummary();
     }
 
@@ -1445,8 +1612,9 @@
   /* ── 이벤트 연결 ────────────────────────────────────────────────── */
   function bind() {
     // 랜딩 CTA
-    $('#heroTryBtn').addEventListener('click', function () { showView('write'); });
+    $('#heroTryBtn').addEventListener('click', function () { trackEvent('trial_start'); showView('write'); });
     $('#openAppBtn').addEventListener('click', function () {
+      trackEvent('trial_start');
       showView(state.view === 'land' ? 'write' : 'land');
       $('#openAppBtn').textContent = state.view === 'write' ? '소개로' : '체험하기';
     });
@@ -1460,11 +1628,21 @@
       });
     });
     $('#planNote').addEventListener('click', function (ev) {
-      if (ev.target.closest('.plan-clear')) { state.plan = ''; paintPlanNote(); }
+      if (ev.target.closest('.plan-clear')) { state.plan = ''; paintPlanNote(); return; }
+      const pick = ev.target.closest('.plan-pick');
+      if (pick) { state.plan = pick.getAttribute('data-plan'); paintPlanNote(); }
     });
 
     // 신청 폼
     $('#applyForm').addEventListener('submit', handleApply);
+    $('#startTrialBtn').addEventListener('click', function () {
+      trackEvent('trial_start');
+      showView('write');
+      if (!auth.session) { auth.pending = true; openAuthModal('gate'); return; }
+      toast('무료 3건으로 바로 만들어 보세요');
+      const p = $('#placeInput');
+      if (p) p.focus();
+    });
     $('#copyApplyBtn').addEventListener('click', function () {
       copyText($('#applyPreview').textContent, '신청 내용을 복사했어요');
     });
@@ -1524,9 +1702,53 @@
       t.addEventListener('click', function () { setAuthMode(t.getAttribute('data-auth-tab')); });
     });
     $('#authForm').addEventListener('submit', handleAuthSubmit);
+    // 비밀번호 찾기: Supabase 비밀번호 재설정 메일을 실제로 보낸다 (가짜 버튼이 아님)
+    $('#authForgotBtn').addEventListener('click', async function () {
+      const email = $('#authEmail').value.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { authMsg('비밀번호 재설정 메일을 받으실 이메일을 먼저 입력해 주세요.'); return; }
+      if (!auth.sb) { authMsg('로그인 서버에 연결하지 못했어요. 새로고침 후 다시 시도해 주세요.'); return; }
+      try {
+        const r = await auth.sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+        if (r.error) { authMsg(mapAuthError(r.error)); return; }
+        authMsg('비밀번호 재설정 메일을 보냈어요. 메일의 링크를 눌러 새 비밀번호를 정해 주세요. (스팸함도 확인해 주세요)', true);
+      } catch (e) { authMsg(mapAuthError(e)); }
+    });
     $$('[data-close-auth]').forEach(function (b) { b.addEventListener('click', closeAuthModal); });
     $$('[data-close-limit]').forEach(function (b) { b.addEventListener('click', closeLimitModal); });
     $('#limitLater').addEventListener('click', closeLimitModal);
+    $('#limitApplyBtn').addEventListener('click', function () { goToPlan(''); });
+    // 결과 화면: 연락처 경고 → 업체 정보 채우기
+    $('#bizWarnBtn').addEventListener('click', function () {
+      showView('write');
+      $('#bizBody').hidden = false;
+      $('#bizToggle').setAttribute('aria-expanded', 'true');
+      $('#bizName').focus();
+    });
+    // 내 원고 목록: 불러오기 / 삭제
+    $('#myPostsList').addEventListener('click', function (ev) {
+      const loadBtn = ev.target.closest('[data-load-post]');
+      const delBtn = ev.target.closest('[data-del-post]');
+      if (loadBtn) {
+        const post = loadSavedPosts().filter(function (p) { return p.id === loadBtn.getAttribute('data-load-post'); })[0];
+        if (!post) return;
+        state.posts = null;
+        state.lastDemo = false;
+        state.demoScene = false;
+        state.ai = null;
+        state.result = post;
+        state.channel = post.channel;
+        write(STORE.channel, post.channel);
+        renderResult();
+        showView('result');
+        drawCompare();
+        return;
+      }
+      if (delBtn) {
+        write(STORE.posts, loadSavedPosts().filter(function (p) { return p.id !== delBtn.getAttribute('data-del-post'); }));
+        renderMyPosts();
+        toast('원고를 삭제했어요');
+      }
+    });
     $$('[data-limit-plan]').forEach(function (b) {
       b.addEventListener('click', function () { goToPlan(b.getAttribute('data-limit-plan')); });
     });
@@ -1535,6 +1757,8 @@
       if (!$('#authModal').hidden) closeAuthModal();
       else if (!$('#limitModal').hidden) closeLimitModal();
     });
+    // 관리자 전용 상태는 #admin 해시가 있을 때만 보인다 (해시로 들어온 경우 포함)
+    window.addEventListener('hashchange', paintSysState);
 
     // 업종
     $('#industryChips').addEventListener('click', function (ev) {
@@ -1588,8 +1812,8 @@
 
     // 생성
     $('#generateBtn').addEventListener('click', doGenerate);
-    $('#sampleBtn').addEventListener('click', function () { runSample(false); });
-    $('#demoTryBtn').addEventListener('click', function () { runSample(true); });
+    $('#sampleBtn').addEventListener('click', function () { trackEvent('demo_start'); runSample(false); });
+    $('#demoTryBtn').addEventListener('click', function () { trackEvent('demo_start'); runSample(true); });
     // 랜딩 예시 원고: 내부 스크롤 대신 '원고 전체 보기'로 펼친다
     const moreBtn = $('#demoMoreBtn');
     if (moreBtn) {
@@ -1649,7 +1873,7 @@
       }
     });
     $('#regenBtn').addEventListener('click', function () {
-      if (state.lastDemo) { showDemo(); return; }
+      if (state.lastDemo) { regenDemo(); return; }
       state.seed = (state.seed + 1 + Math.floor(Math.random() * 97)) >>> 0;
       doGenerate({ sample: false });
     });
@@ -1674,8 +1898,10 @@
     state.channel = CAT.getChannel(read(STORE.channel, 'blog')).id;
     renderLanding();
     renderApplyForm();
+    paintPlanNote();   // 신청 폼에 요금제 선택지를 처음부터 보여준다
     renderIndustryChips();
     renderChannelChips();
+    renderMyPosts();   // 이 기기에 저장된 원고 목록
     bind();
     loadBiz();
     loadDraft();

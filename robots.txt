@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://ulyeol-lab.github.io/sigong-log/sitemap.xml

@@ -715,7 +715,7 @@
   }
 
   function summaryText(rows) {
-    return ['■ 현장 요약'].concat(rows.map(function (r) { return '· ' + r.k + ' : ' + r.v; })).join('\n');
+    return ['■ 현장 요약', ''].concat(rows.map(function (r) { return '· ' + r.k + ' : ' + r.v; })).join('\n');
   }
 
   function markerLine(processName, photoLabel) {
@@ -773,11 +773,18 @@
 
     // 작업 전 상태 — 사진과 함께 보는 현장 상태. 지역·업종 키워드를 본문 앞쪽에 한 번 더 둔다.
     if (I.state && I.state.length) {
-      const lead = {
-        haeyo: ctx.placeLabel + ' ' + I.keyword + ' 현장에 도착해서 먼저 본 상태는 이랬어요.',
-        hapsio: ctx.placeLabel + ' ' + I.keyword + ' 현장에 도착해 상태를 먼저 확인했습니다.',
-        ilji: I.keyword + ' 현장 상태 확인.'
-      }[st];
+      const lead = pick([
+        {
+          haeyo: ctx.placeLabel + ' ' + I.keyword + ' 현장에 도착해서 먼저 본 상태는 이랬어요.',
+          hapsio: ctx.placeLabel + ' ' + I.keyword + ' 현장에 도착해 상태를 먼저 확인했습니다.',
+          ilji: I.keyword + ' 현장 상태 확인.'
+        },
+        {
+          haeyo: '도착하자마자 ' + ctx.placeLabel + ' ' + I.keyword + ' 현장을 한 바퀴 봤어요. 눈에 보이는 상태부터 적어 두면 작업 순서가 정해지거든요.',
+          hapsio: '도착 후 ' + ctx.placeLabel + ' ' + I.keyword + ' 현장을 먼저 둘러보았습니다. 확인한 상태를 기준으로 작업 순서를 정했습니다.',
+          ilji: ctx.placeLabel + ' 현장 도착 후 상태 확인. 확인 결과 기준 순서 결정.'
+        }
+      ], ctx.rnd)[st];
       lines.push('■ 작업 전 상태');
       lines.push([lead].concat(I.state.map(function (s) { return '· ' + s; })).join('\n'));
     }
@@ -790,11 +797,18 @@
     // 작업 순서를 한 줄로 먼저 보여 준다(검색으로 들어온 사람이 먼저 보는 부분).
     const flow = I.processes.map(function (p) { return String(p.name).replace(/\s*\(.*\)$/, ''); }).join(' → ');
     lines.push('■ 작업 순서');
-    lines.push({
-      haeyo: '이번 현장은 ' + flow + ' 순서로 진행했어요. 순서를 바꾸면 이미 끝낸 곳에 물과 먼지가 다시 묻어서 같은 자리를 두 번 손대게 됩니다.',
-      hapsio: '이번 현장은 ' + flow + ' 순서로 진행했습니다. 순서를 바꾸면 이미 마친 곳에 물과 먼지가 다시 묻어 같은 자리를 두 번 손대게 됩니다.',
-      ilji: flow + ' 순서로 진행. 순서 변경 시 재작업 발생.'
-    }[st]);
+    lines.push(pick([
+      {
+        haeyo: '이번 현장은 ' + flow + ' 순서로 진행했어요. 순서를 바꾸면 이미 끝낸 곳에 물과 먼지가 다시 묻어서 같은 자리를 두 번 손대게 됩니다.',
+        hapsio: '이번 현장은 ' + flow + ' 순서로 진행했습니다. 순서를 바꾸면 이미 마친 곳에 물과 먼지가 다시 묻어 같은 자리를 두 번 손대게 됩니다.',
+        ilji: flow + ' 순서로 진행. 순서 변경 시 재작업 발생.'
+      },
+      {
+        haeyo: '작업 순서는 ' + flow + '예요. 앞에서 끝낸 공정이 뒤 공정 때문에 더러워지면 다시 손대야 해서, 순서를 지키는 게 시간을 아끼는 방법이에요.',
+        hapsio: '작업 순서는 ' + flow + '입니다. 앞 공정이 뒤 공정으로 오염되면 재작업이 생기므로 순서를 지키는 것이 중요합니다.',
+        ilji: '순서: ' + flow + '. 공정 간 오염 방지를 위해 순서 준수.'
+      }
+    ], ctx.rnd)[st]);
 
     I.processes.forEach(function (proc, i) {
       lines.push('■ ' + proc.name);
@@ -810,11 +824,18 @@
 
     // 달라진 점 — 공정 설명 뒤에 결과를 한 번에 보여 준다(본문 분량·키워드 분산).
     if (I.after && I.after.length) {
-      const lead2 = {
-        haeyo: '작업을 마치고 확인한 결과는 이래요.',
-        hapsio: I.keyword + ' 작업을 마친 뒤 달라진 부분을 정리했습니다.',
-        ilji: '작업 후 변화 정리.'
-      }[st];
+      const lead2 = pick([
+        {
+          haeyo: '작업을 마치고 확인한 결과는 이래요.',
+          hapsio: I.keyword + ' 작업을 마친 뒤 달라진 부분을 정리했습니다.',
+          ilji: '작업 후 변화 정리.'
+        },
+        {
+          haeyo: '다 마치고 나서 작업 전 사진이랑 비교해 봤어요. 달라진 건 이렇습니다.',
+          hapsio: '작업 완료 후 작업 전 상태와 비교한 결과는 다음과 같습니다.',
+          ilji: '작업 전후 비교 결과.'
+        }
+      ], ctx.rnd)[st];
       lines.push('■ 달라진 점');
       lines.push([lead2].concat(I.after.map(function (s) { return '· ' + s; })).join('\n'));
     }
@@ -823,23 +844,37 @@
     if (I.note && I.note[st]) lines.push(I.note[st]);
 
     const tipList = tips || I.tips;
-    const tipBlock = ['■ 셀프로 확인할 포인트'].concat(tipList.map(function (tip) {
+    const tipBlock = ['■ 셀프로 확인할 포인트', ''].concat(tipList.map(function (tip) {
       return '· ' + tip[st];
     })).join('\n');
     lines.push(tipBlock);
 
     if (ctx.pricePrivate) {
-      lines.push({
-        haeyo: '견적은 현장 상태에 따라 차이가 커서 글로 적기 어려워요. 사진 몇 장과 평수만 알려주시면 바로 계산해 드립니다.',
-        hapsio: '견적은 현장 상태에 따라 차이가 커서 서면으로 단정하기 어렵습니다. 사진과 평수를 알려주시면 정확히 안내드립니다.',
-        ilji: '견적 : 현장 확인 후 안내. 사진·평수 전달 시 산출.'
-      }[st]);
+      lines.push(pick([
+        {
+          haeyo: '견적은 현장 상태에 따라 차이가 커서 글로 적기 어려워요. 사진 몇 장과 평수만 알려주시면 바로 계산해 드립니다.',
+          hapsio: '견적은 현장 상태에 따라 차이가 커서 서면으로 단정하기 어렵습니다. 사진과 평수를 알려주시면 정확히 안내드립니다.',
+          ilji: '견적 : 현장 확인 후 안내. 사진·평수 전달 시 산출.'
+        },
+        {
+          haeyo: '견적은 글로 정해 드리기 어려워요. 현장마다 오염 정도가 달라서, 사진 보내주시면 보고 바로 알려드릴게요.',
+          hapsio: '견적은 현장별 오염 정도에 따라 달라지므로 서면으로 확정하기 어렵습니다. 사진을 보내주시면 확인 후 안내드립니다.',
+          ilji: '견적 : 오염도별 산출. 사진 확인 후 안내.'
+        }
+      ], ctx.rnd)[st]);
     } else if (ctx.price) {
-      lines.push({
-        haeyo: '이번 현장 견적은 ' + ctx.price + ' 정도였어요. 같은 평수라도 오염 정도에 따라 달라지니까 사진 보내주시면 정확하게 다시 안내드릴게요.',
-        hapsio: '이번 현장 견적은 ' + ctx.price + ' 선에서 진행되었습니다. 동일 평수라도 오염 정도에 따라 차이가 있어 사진을 보내주시면 정확히 안내드립니다.',
-        ilji: '견적 : ' + ctx.price + '. 오염 정도에 따라 변동. 사진 확인 후 확정.'
-      }[st]);
+      lines.push(pick([
+        {
+          haeyo: '이번 현장 견적은 ' + ctx.price + ' 정도였어요. 같은 평수라도 오염 정도에 따라 달라지니까 사진 보내주시면 정확하게 다시 안내드릴게요.',
+          hapsio: '이번 현장 견적은 ' + ctx.price + ' 선에서 진행되었습니다. 동일 평수라도 오염 정도에 따라 차이가 있어 사진을 보내주시면 정확히 안내드립니다.',
+          ilji: '견적 : ' + ctx.price + '. 오염 정도에 따라 변동. 사진 확인 후 확정.'
+        },
+        {
+          haeyo: '이번 현장은 ' + ctx.price + ' 정도에 진행했어요. 평수가 같아도 상태에 따라 금액이 달라지니, 사진 보내주시면 다시 정확히 봐드릴게요.',
+          hapsio: '이번 현장은 ' + ctx.price + ' 선에서 진행되었습니다. 동일 평수라도 상태에 따라 금액이 달라지므로 사진을 보내주시면 다시 확인해 드립니다.',
+          ilji: '견적 : ' + ctx.price + '. 상태별 변동. 사진 재확인 후 확정.'
+        }
+      ], ctx.rnd)[st]);
     } else {
       lines.push({
         haeyo: '견적은 평수와 오염 정도에 따라 달라져요. 사진 보내주시면 정확하게 안내드릴게요.',
