@@ -4,7 +4,7 @@
 현장 사진 3장이면 지역 키워드 제목·공정별 본문·비포/애프터 카드가 나옵니다.
 자동 입력·자동 발행은 하지 않고, **원고와 이미지만** 만들어 드립니다.
 
-- 라이브: https://ulyeol-lab.github.io/sigong-log/
+- 라이브: https://lab5037.github.io/sigong-log/
 - 빌드 도구 없이 `index.html` 하나로 동작하는 정적 사이트입니다.
   회원가입·로그인, **무료 체험 3건 / 월 15건 서버 잠금**, **원고 생성**, **신청 접수**는 Supabase를 씁니다.
 - 원고 생성기는 **서버(Supabase Edge Function `generate-post`)에만** 있습니다.
@@ -153,7 +153,7 @@
 2. **Secrets:** Dashboard → Edge Functions → Secrets (또는 CLI)
    ```bash
    supabase secrets set TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... \
-     LEAD_IP_SALT=$(openssl rand -hex 16) ALLOWED_ORIGINS=https://ulyeol-lab.github.io
+     LEAD_IP_SALT=$(openssl rand -hex 16) ALLOWED_ORIGINS=https://lab5037.github.io
    ```
    `SUPABASE_URL`·`SUPABASE_ANON_KEY`·`SUPABASE_SERVICE_ROLE_KEY`는 Supabase가 함수에 자동으로 넣어 줍니다.
 3. **함수 배포**

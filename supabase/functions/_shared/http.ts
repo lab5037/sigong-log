@@ -4,7 +4,7 @@
 // ALLOWED_ORIGINS(쉼표 구분)로 바꿀 수 있고, 없으면 아래 기본값을 씁니다.
 
 const DEFAULT_ORIGINS = [
-  'https://ulyeol-lab.github.io',
+  'https://lab5037.github.io',
   'http://localhost:8080',
   'http://127.0.0.1:8080',
   'http://localhost:5500',

@@ -21,7 +21,7 @@ function ok(cond, name, extra) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const html = read('index.html').replace(/<script[\s\S]*?<\/script>/g, '');
-const dom = new JSDOM(html, { url: 'https://ulyeol-lab.github.io/sigong-log/', runScripts: 'outside-only', pretendToBeVisual: true });
+const dom = new JSDOM(html, { url: 'https://lab5037.github.io/sigong-log/', runScripts: 'outside-only', pretendToBeVisual: true });
 const { window } = dom;
 
 const errors = [];

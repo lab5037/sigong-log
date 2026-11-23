@@ -58,7 +58,7 @@ Deno.test('generate-post: seed 없거나 이상하면 서버가 만든다', () =
 Deno.test('submit-lead: 정상 신청', () => {
   const r = parseLead({
     name: '반짝클린', industry: '입주·이사청소', region: '송파구', contact: '010-1234-5678',
-    plan: '라이트', agree: true, page: 'https://ulyeol-lab.github.io/sigong-log/',
+    plan: '라이트', agree: true, page: 'https://lab5037.github.io/sigong-log/',
   });
   assert(r.ok);
   if (r.ok) {
